@@ -1,0 +1,66 @@
+{
+  "durationMs": 30014.19999998808,
+  "frames": 1741,
+  "medianFps": 59.88023956370228,
+  "p95FrameMs": 17.5,
+  "nodes": 137216,
+  "links": 2097152,
+  "submittedSegments": 2097152,
+  "drawCalls": 3,
+  "width": 1920,
+  "height": 1080,
+  "dpr": 1,
+  "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Pro, Unspecified Version)",
+  "lineCompositing": "depth",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
+  "spec": {
+    "version": 1,
+    "mode": "capacity",
+    "targetEndpoints": 100000,
+    "targetBandwidthTbps": 80000,
+    "planes": 8,
+    "planeStart": 0,
+    "tiers": [
+      {
+        "ports": 64,
+        "breakout": 8,
+        "portGbps": 100,
+        "chipTbps": 51.2,
+        "down": 256,
+        "up": 256,
+        "reserved": 0
+      },
+      {
+        "ports": 64,
+        "breakout": 8,
+        "portGbps": 100,
+        "chipTbps": 51.2,
+        "down": 512,
+        "up": 0,
+        "reserved": 0
+      }
+    ]
+  },
+  "view": {
+    "layout": "layered",
+    "lines": "straight",
+    "opacity": 0.18,
+    "colorBy": "tier"
+  },
+  "generatedAt": "2026-09-25T06:12:09.377Z",
+  "firstInteractiveMs": 793.507875,
+  "browserVersion": "153.0.8010.53",
+  "hardware": {
+    "cpu": "Apple M4 Pro",
+    "cpuCores": 14,
+    "memoryGiB": 24,
+    "platform": "darwin",
+    "release": "24.6.0"
+  },
+  "targets": {
+    "firstInteractiveMs": 5000,
+    "medianFps": 30
+  },
+  "pass": true,
+  "methodology": "Production build; headless Chrome with GPU; 1920x1080 canvas; DPR 1; no filters or sampling; straight links; automatic orbit for 30 seconds; first second excluded from frame distribution. First interaction includes JSON import and UI readiness polling."
+}
