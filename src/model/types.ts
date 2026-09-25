@@ -38,6 +38,7 @@ export interface Filter {
 export const EMPTY_FILTER: Filter = { tier: null, plane: null, pod: null };
 export const DEFAULT_VIEW: ViewConfig = { layout: 'layered', lines: 'straight', opacity: 0.18, colorBy: 'plane', showEndpoints: true };
 export const RENDER_BUDGET = { nodes: 250_000, links: 5_000_000 };
+export const DEPTH_LINK_THRESHOLD = 500_000;
 export interface Diagnostic { field: string; message: LocalizedText }
 export interface CapacitySummary {
   endpoints: bigint;

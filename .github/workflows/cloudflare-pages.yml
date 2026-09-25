@@ -1,0 +1,34 @@
+name: Deploy Cloudflare Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  deploy:
+    name: Request Pages deployment
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger deploy hook
+        shell: bash
+        env:
+          CLOUDFLARE_DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+        run: |
+          if [[ -z "$CLOUDFLARE_DEPLOY_HOOK" ]]; then
+            echo "::error::Add the CLOUDFLARE_DEPLOY_HOOK repository secret before running this workflow."
+            exit 1
+          fi
+
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 60 \
+            --output /dev/null \
+            --request POST --data '' \
+            "$CLOUDFLARE_DEPLOY_HOOK"
+
+          echo "Deployment requested. Check Cloudflare Pages for the build and deployment result."

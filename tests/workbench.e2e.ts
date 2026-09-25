@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test';
-import { readFile } from 'node:fs/promises';
 import { uniformSpec } from '../src/model/defaults';
 import { DEFAULT_VIEW, type TopologySpec } from '../src/model/types';
 import { serializeProject } from '../src/model/project';
@@ -33,7 +32,7 @@ test('default graph draws real nodes and links without browser errors', async ({
   await expect(page.getByTestId('switch-count')).toContainText('48');
   await expect(page.getByTestId('link-count')).toContainText('1,024');
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1024');
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '5');
   const input = await page.getByRole('region', { name: "Network inputs", exact: true }).boundingBox();
   const results = await page.getByRole('region', { name: "Results", exact: true }).boundingBox();
   expect(input!.y + input!.height).toBeLessThan(results!.y);
@@ -43,6 +42,8 @@ test('default graph draws real nodes and links without browser errors', async ({
     const canvas = await page.getByTestId('network-canvas').boundingBox();
     expect(canvas!.y + canvas!.height).toBeLessThanOrEqual(viewport.height);
     expect(canvas!.height).toBeGreaterThan(240);
+    expect(await page.locator('.inspector-content').evaluate(el => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    await expect(page.getByRole('button', { name: 'Show all paths', exact: true })).toBeInViewport();
     await expect(page.getByRole('button', { name: "Generate network", exact: true })).toBeInViewport();
     if (viewport.width === 1366) await page.screenshot({ path: info.outputPath('laptop-workbench.png') });
   }
@@ -50,6 +51,12 @@ test('default graph draws real nodes and links without browser errors', async ({
   await page.screenshot({ path: info.outputPath('default-workbench.png'), fullPage: true });
   await page.getByRole('button', { name: "Capacity details", exact: true }).click();
   await page.screenshot({ path: info.outputPath('capacity-workbench.png'), fullPage: true });
+  await page.getByRole('button', { name: '3 tier', exact: true }).click();
+  await page.getByRole('button', { name: 'Generate network', exact: true }).click();
+  await ready(page, 9472, 24576);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  expect(await page.locator('.inspector-content').evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  await page.screenshot({ path: info.outputPath('three-tier-inspector.png') });
 });
 test('four layouts and elbow segments preserve the physical graph', async ({ page }, info) => {
   for (const mode of ['planes', 'flat', 'radial', 'layered']) {
@@ -87,7 +94,7 @@ test('single-plane three-tier networks expose connectivity groups in both line m
   }
   await page.getByRole('button', { name: "Clear selection", exact: true }).click();
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '5');
   await page.screenshot({ path: info.outputPath('implicit-groups-straight.png') });
   await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1152');
@@ -114,6 +121,15 @@ test('shows the reference arrangement with four automatic planes and four perpen
   await page.getByRole('button', { name: "Focus mode", exact: true }).click();
   await expect(page.locator('.topology-label').filter({ hasText: /^Pod / })).toHaveCount(4);
   await expect(page.locator('.topology-label').filter({ hasText: /^Plane / })).toHaveCount(4);
+  await expect(page.locator('.tier-label')).toHaveCount(3);
+  const labels = await page.locator('.topology-label:visible').evaluateAll(elements => elements.map(el => {
+    const { x, y, width, height } = el.getBoundingClientRect(); return { x, y, width, height };
+  }));
+  expect(labels.length).toBeGreaterThan(5);
+  for (let i = 0; i < labels.length; i++) for (let j = i + 1; j < labels.length; j++) {
+    const a = labels[i], b = labels[j];
+    expect(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y).toBe(true);
+  }
   await page.screenshot({ path: info.outputPath('reference-four-planes.png') });
 });
 test('F16 Pod and plane filters isolate the corresponding ToRs and Fabric switches', async ({ page }, info) => {
@@ -132,6 +148,7 @@ test('F16 Pod and plane filters isolate the corresponding ToRs and Fabric switch
   }
   expect(fabricColors[0]).toBe(fabricColors[1]);
   expect(fabricColors[0]).not.toBe(fabricColors[2]);
+  await page.screenshot({ path: info.outputPath('f16-selection-original-colors.png') });
   await page.getByRole('button', { name: "Clear selection", exact: true }).click();
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
   await page.getByLabel("Filter Pod", { exact: true }).fill('0');
@@ -157,14 +174,14 @@ test('highlights all ECMP routes, switches line modes, and clears results', asyn
   await expect(page.getByTestId('all-paths-result')).toContainText("Shortest paths: 16 · Hops per path: 4");
   await expect(page.getByTestId('all-paths-result')).toContainText("Highlighted nodes: 26 · Unique links: 40");
   await expect(page.locator('.selection-chip')).toContainText("All shortest paths: 16");
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '6');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '7');
   await page.screenshot({ path: info.outputPath('all-ecmp-paths.png') });
   await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '768');
   await expect(page.getByTestId('all-paths-result')).toBeVisible();
   await page.getByRole('button', { name: "Clear path", exact: true }).click();
   await expect(page.getByTestId('all-paths-result')).toHaveCount(0);
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '5');
   await page.getByRole('button', { name: "View shortest path", exact: true }).click();
   await expect(page.locator('.path-result')).toContainText("Links: 4");
   await page.getByRole('button', { name: "Show all paths", exact: true }).click();
@@ -186,7 +203,7 @@ test('plans a partial network, finds paths, searches and picks a GPU-rendered no
   await page.getByRole('button', { name: "Generate network", exact: true }).click();
   await ready(page, 123, 212);
   await expect(page.getByTestId('switch-count')).toContainText('23');
-  await expect(page.getByRole('status')).toContainText("Inputs and results are in sync");
+  await expect(page.getByRole('status')).toHaveCount(0);
   await page.getByLabel("Destination node", { exact: true }).fill('E-99');
   await page.getByRole('button', { name: "View shortest path", exact: true }).click();
   await expect(page.locator('.path-result')).toContainText("Links: 4");
@@ -216,13 +233,21 @@ test('selects the nearest switch from empty space and highlights every direct co
   await canvas.click({ position: { x: box!.width / 2 + 55, y: box!.height / 2 } });
   await expect(page.getByRole('heading', { name: 'T0-0', exact: true })).toBeVisible();
   await expect(page.locator('.selection-chip')).toContainText("Direct links: 32");
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '6');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '7');
   await ready(page);
   await page.screenshot({ path: info.outputPath('selected-switch.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole('button', { name: 'Neighbors (32)', exact: true }).click();
+  await expect(page.locator('#node-neighbors')).toBeVisible();
+  await page.getByRole('button', { name: 'Close neighbors', exact: true }).click();
+  await expect(page.locator('#node-neighbors')).not.toBeVisible();
+  expect(await page.locator('.inspector-content').evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Show all paths', exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath('compact-node-details.png') });
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
   await expect(page.locator('.selection-chip')).toContainText("Direct links: 32");
   await page.getByRole('button', { name: "Clear selection", exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '5');
 });
 test('builds 100,000 terminals through ordinary parameter controls and draws every link', async ({ page }, info) => {
   await page.getByRole('button', { name: "Target planning", exact: true }).click();
@@ -253,18 +278,12 @@ test('builds 100,000 terminals through ordinary parameter controls and draws eve
   await page.screenshot({ path: info.outputPath('100k-planes-2d-overview.png') });
   await page.getByRole('button', { name: "Reset camera", exact: true }).click();
 });
-test('exports, imports and restores a project including view settings', async ({ page }) => {
+test('imports and restores a project including view settings', async ({ page }) => {
   await page.getByRole('button', { name: '3 tier', exact: true }).click();
   await page.getByLabel("Physical ports", { exact: true }).fill('8');
   await page.getByRole('button', { name: "Generate network", exact: true }).click();
   await ready(page, 208, 384);
   await page.getByLabel("Topology layout", { exact: true }).selectOption('radial');
-  const pending = page.waitForEvent('download');
-  await page.getByRole('button', { name: "Export configuration", exact: true }).click();
-  const file = await pending;
-  const exported = JSON.parse(await readFile((await file.path())!, 'utf8'));
-  expect(exported.spec.tiers).toHaveLength(3);
-  expect(exported.view.layout).toBe('radial');
   await page.reload();
   await ready(page, 208, 384);
   await expect(page.getByLabel("Topology layout", { exact: true })).toHaveValue('radial');
@@ -279,7 +298,7 @@ test('shows exact capacity above the rendering budget without allocating the gra
   await expect(page.getByRole('heading', { name: "Capacity calculated; rendering limit exceeded", exact: true })).toBeVisible();
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-nodes', '0');
   await page.getByRole('button', { name: "Capacity details", exact: true }).click();
-  await expect(page.getByRole('heading', { name: "Every tier, accounted for.", exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: "Capacity details", exact: true })).toBeVisible();
 });
 test('mobile layout remains scrollable and usable', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });

@@ -1,10 +1,10 @@
 import type { TopologyBuffers, ViewConfig } from '../model/types';
 
 export const TIER_COLORS = ['#63d9bb', '#64b8f7', '#aa96f7', '#f1b66c', '#f07eaf', '#e4db79'];
-export const PLANE_COLORS = ['#68dcca', '#b79bfa', '#f5bf79', '#72b9f5', '#f48ca8', '#b8df78', '#67d9ee', '#e3a4e6'];
-export const SHARED_COLOR = '#839aaf';
+export const PLANE_COLORS = ['#19a7a0', '#9271c9', '#438fca', '#87ad51', '#d58a67', '#bd739c', '#59a6bf', '#b59b43'];
+export const SHARED_COLOR = '#8c9aaa';
 export const groupColor = (id: number): string => id < PLANE_COLORS.length
-  ? PLANE_COLORS[id] : `hsl(${(id * 137.508) % 360}, 65%, 70%)`;
+  ? PLANE_COLORS[id] : `hsl(${(id * 137.508) % 360}, 48%, 54%)`;
 export const usesGroupColors = (graph: TopologyBuffers, _colorBy?: ViewConfig['colorBy']): boolean =>
   graph.colorGroupKind !== 'tier';
 /** Fabric switches above shared ToRs belong to both a Pod and an upper plane. */

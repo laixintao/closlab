@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n/I18nProvider';
-import { ArrowRight, ChevronDown, Cpu, Layers3, Network, RotateCcw, Settings2 } from 'lucide-react';
+import { ChevronDown, RotateCcw } from 'lucide-react';
 import { uniformSpec } from '../model/defaults';
 import { formatCount } from '../model/format';
 import type { Diagnostic, SwitchProfile, TopologySpec } from '../model/types';
@@ -13,9 +13,9 @@ function NumberField({ label, value, onChange, suffix, min = 0, step = 1, disabl
     {suffix && <span className="input-suffix">{suffix}</span>}
   </div></label>;
 }
-export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onApply, onReset }:
+export default function ConfigPanel({ spec, setSpec, errors, busy, onApply, onReset }:
   { spec: TopologySpec; setSpec: (spec: TopologySpec) => void; errors: Diagnostic[];
-    busy: boolean; dirty: boolean; onApply: () => void; onReset: () => void }) {
+    busy: boolean; onApply: () => void; onReset: () => void }) {
   const { t, text } = useI18n();
   const [tier, setTier] = useState(0), [sync, setSync] = useState(true);
   const activeTier = Math.min(tier, spec.tiers.length - 1);
@@ -54,21 +54,20 @@ export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onAppl
   const effective = current.ports * current.breakout;
   const free = effective - current.down - current.up - current.reserved;
   return <section className="config-panel" aria-labelledby="input-heading">
-    <div className="config-heading"><div><span className="section-step">01</span><Settings2 size={15} /><h2 id="input-heading">{t("Network inputs")}</h2><p>{t("Set the target, topology, and switch hardware")}</p></div>
+    <div className="config-heading"><div><h2 id="input-heading">{t("Network inputs")}</h2></div>
       <div className="config-heading-actions">
-        <span className="input-state">{dirty ? t("Unapplied changes") : busy ? t("Generating…") : t("Inputs applied")}</span>
         <button className="quiet-button" title={t("Restore default inputs")} aria-label={t("Restore default inputs")} onClick={onReset}><RotateCcw size={13} /><span>{t("Restore defaults")}</span></button>
         <button className="primary-button" onClick={onApply} disabled={errors.length > 0}>
-          {busy ? t("Rebuild network") : t("Generate network")}<ArrowRight size={14} />
+          {busy ? t("Rebuild network") : t("Generate network")}
         </button>
       </div>
     </div>
     <div className="config-grid">
       <section className="config-section">
-        <div className="section-label"><Network size={13} /> {t("Calculation mode")}</div>
+        <div className="section-label">{t("Calculation mode")}</div>
         <div className="segmented mode-select">
-          <button className={spec.mode === 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'capacity' })}>{t("Maximum capacity")}</button>
-          <button className={spec.mode !== 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'endpoints' })}>{t("Target planning")}</button>
+          <button aria-pressed={spec.mode === 'capacity'} className={spec.mode === 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'capacity' })}>{t("Maximum capacity")}</button>
+          <button aria-pressed={spec.mode !== 'capacity'} className={spec.mode !== 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'endpoints' })}>{t("Target planning")}</button>
         </div>
         <p className="field-hint">{spec.mode === 'capacity' ? t("Derive full capacity from ports and tiers.") : t("Fill to the target while preserving all uplink paths.")}</p>
         {spec.mode !== 'capacity' && <div className="target-fields">
@@ -77,19 +76,19 @@ export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onAppl
             <option value="endpoints">{t("Endpoints")}</option><option value="bandwidth">{t("Total injection bandwidth")}</option>
           </select><ChevronDown size={13} /></div></label>
           {spec.mode === 'endpoints'
-            ? <NumberField label={t("Target endpoints")} value={spec.targetEndpoints} min={1} suffix={t("endpoints")} onChange={v => update({ targetEndpoints: v })} />
+            ? <NumberField label={t("Target endpoints")} value={spec.targetEndpoints} min={1} onChange={v => update({ targetEndpoints: v })} />
             : <NumberField label={t("Target injection bandwidth")} value={spec.targetBandwidthTbps} step={0.1} min={0.001} suffix="Tbps" onChange={v => update({ targetBandwidthTbps: v })} />}
         </div>}
       </section>
       <section className="config-section">
-        <div className="section-label"><Layers3 size={13} /> {t("Topology rules")}</div>
+        <div className="section-label">{t("Topology rules")}</div>
         <label className="field"><span>{t("Switch tiers")} <small>{t("Excludes endpoints")}</small></span>
           <div className="tier-picker">{[2, 3, 4, 5].map(count => <button key={count} aria-label={count + ' ' + t('tier')}
             className={spec.tiers.length === count ? 'active' : ''} onClick={() => setTierCount(count)}>{count}<small> {t('tier')}</small></button>)}</div>
         </label>
         <div className="field-grid">
-          <NumberField label={t("Plane count")} value={spec.planes} min={1} suffix={t('planes')} onChange={v => update({ planes: v })} />
-          <label className="field"><span>{t("Plane split boundary")}</span><div className="select-wrap">
+          <NumberField label={t("Plane count")} value={spec.planes} min={1} onChange={v => update({ planes: v })} />
+          <label className="field"><span>{t("Plane boundary")}</span><div className="select-wrap">
             <select aria-label={t("Plane split boundary")} value={spec.planeStart} onChange={e => update({ planeStart: Number(e.target.value) })}>
               <option value={0}>{t("Endpoint access")}</option>
               {spec.tiers.slice(1).map((_, i) => <option key={i} value={i + 1}>{t('Above T{tier}', { tier: i })}</option>)}
@@ -100,7 +99,7 @@ export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onAppl
           : spec.planeStart === 0 ? t("Each endpoint connects to every independent fabric.") : t("Split uplink choices into planes; share lower tiers.")}</p>
       </section>
       <section className="config-section hardware-section">
-        <div className="section-label"><Cpu size={13} /> {t("Switch hardware")}</div>
+        <div className="section-label">{t("Switch hardware")}</div>
         <div className="hardware-toolbar">
           <div className="tier-tabs">{spec.tiers.map((_, i) => <button key={i} className={activeTier === i ? 'active' : ''}
             aria-label={t('Edit T{tier}', { tier: i })} onClick={() => setTier(i)}>T{i}<span>{i === 0 ? t("Access") : i === spec.tiers.length - 1 ? t("Top") : t("Aggregation")}</span></button>)}</div>

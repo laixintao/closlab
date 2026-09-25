@@ -6,6 +6,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { nearestNode } from './picking';
 import { connectionColor, groupColor, nodeColor, SHARED_COLOR, usesGroupColors, usesPodColors } from './colors';
+import { DEPTH_LINK_THRESHOLD } from '../model/types';
 import type { BenchmarkResult, Filter, FrameStats, LayoutMode, LayoutResult, PathSet, TopologyBuffers, ViewConfig } from '../model/types';
 
 const pointVertex = [
@@ -17,6 +18,34 @@ const pointFragment = [
   'void main(){ if(length(gl_PointCoord-vec2(0.5))>0.5) discard; gl_FragColor=vec4(vColor,1.0);',
   '#include <colorspace_fragment>', '}',
 ].join('\n');
+// Camera-facing, outlined circles keep devices legible at every viewing angle.
+// One instanced quad per switch preserves the large-network draw-call budget.
+const switchVertex = `
+uniform vec2 viewport;
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vSize;
+void main() {
+  vec4 center = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+  float distanceScale = isOrthographic ? 1.0 : max(0.1, -center.z);
+  vSize = clamp(length(instanceMatrix[0].xyz) * projectionMatrix[1][1] * viewport.y * 0.5 / distanceScale, 2.5, 18.0);
+  gl_Position = projectionMatrix * center;
+  gl_Position.xy += position.xy * vSize * 2.0 / viewport * gl_Position.w;
+  vUv = uv; vColor = instanceColor;
+}`;
+const switchFragment = `
+varying vec2 vUv;
+varying vec3 vColor;
+varying float vSize;
+void main() {
+  float radius = length(vUv * 2.0 - 1.0);
+  float aa = fwidth(radius);
+  if (radius > 1.0) discard;
+  float border = 1.0 - smoothstep(max(0.25, 1.0 - 2.2 / vSize) - aa, max(0.25, 1.0 - 2.2 / vSize), radius);
+  vec3 color = mix(vec3(0.035, 0.060, 0.082), vColor, border);
+  gl_FragColor = vec4(color, 1.0 - smoothstep(1.0 - aa, 1.0, radius));
+  #include <colorspace_fragment>
+}`;
 const lineVertex = [
   'attribute vec2 ends;', 'uniform sampler2D nodePositions;', 'uniform sampler2D linkColors;',
   'uniform float textureSize;', 'uniform bool elbow;', 'varying vec3 vColor;', 'flat varying vec3 vPlaneColor;',
@@ -36,7 +65,7 @@ const lineFragment = [
   'void main(){',
   'vec3 color=planeColors?vPlaneColor:vColor;',
   '#ifdef DEPTH_LINES',
-  'gl_FragColor=vec4(mix(vec3(0.003,0.005,0.009),color,opacity),1.0);',
+  'gl_FragColor=vec4(mix(vec3(0.947,0.956,0.965),color,opacity),1.0);',
   '#else',
   'gl_FragColor=vec4(color,opacity);',
   '#endif',
@@ -81,6 +110,7 @@ export class NetworkScene {
   private switches: THREE.InstancedMesh | null = null;
   private links: THREE.LineSegments<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
   private guides: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
+  private sheets: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null = null;
   private labels: { element: HTMLSpanElement; position: THREE.Vector3; plane: number | null; pod: number | null }[] = [];
   private straightMaterial: THREE.ShaderMaterial | null = null;
   private elbowMaterial: THREE.ShaderMaterial | null = null;
@@ -101,7 +131,7 @@ export class NetworkScene {
   constructor(private host: HTMLDivElement, onPick: (id: number | null) => void,
     onStats: (stats: FrameStats) => void, onError: (message: LocalizedText) => void) {
     this.onPick = onPick; this.onStats = onStats; this.onError = onError;
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
@@ -135,6 +165,7 @@ export class NetworkScene {
     this.width = Math.max(1, this.host.clientWidth);
     this.height = Math.max(1, this.host.clientHeight);
     this.renderer.setSize(this.width, this.height, false);
+    if (this.switches) (this.switches.material as THREE.ShaderMaterial).uniforms.viewport.value.set(this.width, this.height);
     if (this.camera instanceof THREE.PerspectiveCamera) this.camera.aspect = this.width / this.height;
     else this.updateOrthographicBounds();
     this.camera.updateProjectionMatrix(); this.dirty = true;
@@ -148,6 +179,18 @@ export class NetworkScene {
     if (!(this.camera instanceof THREE.OrthographicCamera)) return;
     const aspect = this.width / this.height;
     const extent = this.layoutBounds.getSize(new THREE.Vector3());
+    if (this.mode === 'planes') {
+      this.camera.updateMatrixWorld();
+      const projected = new THREE.Box3(), corner = new THREE.Vector3();
+      for (const x of [this.layoutBounds.min.x, this.layoutBounds.max.x])
+        for (const y of [this.layoutBounds.min.y, this.layoutBounds.max.y])
+          for (const z of [this.layoutBounds.min.z, this.layoutBounds.max.z])
+            projected.expandByPoint(corner.set(x, y, z).applyMatrix4(this.camera.matrixWorldInverse));
+      const size = Math.max(1, projected.max.y, -projected.min.y, projected.max.x / aspect, -projected.min.x / aspect) * 1.22;
+      this.camera.left = -size * aspect; this.camera.right = size * aspect;
+      this.camera.top = size; this.camera.bottom = -size;
+      return;
+    }
     // Long rows may extend beyond the viewport. Preserve readable tier spacing
     // by default; fitting the entire wide fabric is an explicit user action.
     const halfWidth = this.mode === 'flat' && !this.fitAll2D ? 0 : extent.x / (2 * aspect);
@@ -193,15 +236,17 @@ export class NetworkScene {
     // nodes, so every endpoint/switch remains visible and pickable over dense wiring.
     this.endpoints.onBeforeRender = renderer => renderer.clearDepth();
     this.scene.add(this.endpoints);
-    const switchGeometry = this.remember(new THREE.BoxGeometry(1, 1, 1));
-    const switchMaterial = this.remember(new THREE.MeshBasicMaterial());
+    const switchGeometry = this.remember(new THREE.PlaneGeometry(1, 1));
+    const switchMaterial = this.remember(new THREE.ShaderMaterial({ vertexShader: switchVertex, fragmentShader: switchFragment,
+      uniforms: { viewport: { value: new THREE.Vector2(this.width, this.height) } },
+      transparent: true, depthWrite: false, depthTest: false }));
     this.switches = new THREE.InstancedMesh(switchGeometry, switchMaterial, graph.nodeCount - graph.endpointCount);
     this.remember(this.switches);
     this.switches.frustumCulled = false; this.switches.renderOrder = 3;
     this.scene.add(this.switches);
 
     const lineGeometry = this.remember(new THREE.BufferGeometry());
-    const depthLines = graph.edgeCount > 100000;
+    const depthLines = graph.edgeCount > DEPTH_LINK_THRESHOLD;
     const lineSettings = {
       defines: depthLines ? { DEPTH_LINES: 1 } : {},
       transparent: !depthLines, depthWrite: depthLines, depthTest: depthLines,
@@ -246,6 +291,7 @@ export class NetworkScene {
       const element = document.createElement('span'); element.className = 'topology-label'; element.textContent = label.text;
       element.style.color = label.pod !== null && usesPodColors(this.graph) ? groupColor(label.pod)
         : label.plane === null ? SHARED_COLOR : groupColor(label.plane);
+      if (label.pod === null && label.plane === null) element.classList.add('tier-label');
       this.host.appendChild(element);
       this.labels.push({ element, position: new THREE.Vector3(...label.position), plane: label.plane, pod: label.pod });
     }
@@ -253,31 +299,57 @@ export class NetworkScene {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(layout.guides, 3));
       const colors = new Float32Array(layout.guideGroups.length * 3), color = new THREE.Color();
-      layout.guideGroups.forEach((group, i) => color.set(group < 0 ? SHARED_COLOR : groupColor(group)).toArray(colors, i * 3));
+      layout.guideGroups.forEach((group, i) => color.set(group < 0 ? SHARED_COLOR : groupColor(group))
+        .lerp(new THREE.Color('#263947'), 0.55).toArray(colors, i * 3));
       geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       this.guides = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true,
-        transparent: true, opacity: 0.5, depthWrite: false, depthTest: false }));
+        transparent: true, opacity: 0.38, depthWrite: false, depthTest: false }));
       this.guides.renderOrder = 1; this.guides.frustumCulled = false;
       this.guides.visible = Object.values(this.filter).every(value => value === null);
       this.scene.add(this.guides);
+      const vertices: number[] = [], tints: number[] = [];
+      for (let frame = 0; frame < layout.guides.length; frame += 24) {
+        color.set(groupColor(Math.max(0, layout.guideGroups[frame / 3])));
+        for (const corner of [0, 1, 2, 0, 2, 3]) {
+          vertices.push(...layout.guides.subarray(frame + corner * 6, frame + corner * 6 + 3));
+          tints.push(color.r, color.g, color.b);
+        }
+      }
+      const sheetGeometry = new THREE.BufferGeometry();
+      sheetGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+      sheetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(tints, 3));
+      this.sheets = new THREE.Mesh(sheetGeometry, new THREE.MeshBasicMaterial({ vertexColors: true,
+        side: THREE.DoubleSide, forceSinglePass: true, transparent: true,
+        opacity: Math.min(0.018, 0.18 / (layout.guides.length / 24)), depthWrite: false, depthTest: false }));
+      this.sheets.renderOrder = -1; this.sheets.frustumCulled = false; this.sheets.visible = this.guides.visible;
+      this.scene.add(this.sheets);
     }
     this.updateSwitches(); this.updateHighlights(); this.reset();
   }
   private clearGuides() {
     for (const label of this.labels) label.element.remove();
     this.labels = [];
+    if (this.sheets) {
+      this.scene.remove(this.sheets); this.sheets.geometry.dispose(); this.sheets.material.dispose(); this.sheets = null;
+    }
     if (!this.guides) return;
     this.scene.remove(this.guides); this.guides.geometry.dispose(); this.guides.material.dispose(); this.guides = null;
   }
   private updateLabels() {
-    const point = new THREE.Vector3();
+    const point = new THREE.Vector3(), occupied: { x: number; y: number; width: number }[] = [];
     for (const label of this.labels) {
       point.copy(label.position).project(this.camera);
-      const show = point.z >= -1 && point.z <= 1 && Math.abs(point.x) < 0.98 && Math.abs(point.y) < 0.98 &&
+      const x = (point.x + 1) * this.width / 2, y = (1 - point.y) * this.height / 2;
+      const width = label.element.textContent!.length * 8 + 18;
+      const show = point.z >= -1 && point.z <= 1 && x > width / 2 + 12 && x < this.width - width / 2 - 12 && y > 55 && y < this.height - 42 &&
         this.filter.tier === null && (this.filter.plane === null || label.plane === this.filter.plane) &&
-        (this.filter.pod === null || label.pod === this.filter.pod);
+        (this.filter.pod === null || label.pod === this.filter.pod) &&
+        !occupied.some(r => Math.abs(r.x - x) < (r.width + width) / 2 + 8 && Math.abs(r.y - y) < 30);
       label.element.style.display = show ? '' : 'none';
-      if (show) label.element.style.transform = `translate(${(point.x + 1) * this.width / 2}px, ${(1 - point.y) * this.height / 2}px) translate(-50%, -100%)`;
+      if (show) {
+        occupied.push({ x, y, width });
+        label.element.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+      }
     }
   }
   private updateLayoutBounds() {
@@ -286,6 +358,8 @@ export class NetworkScene {
     const point = new THREE.Vector3();
     for (let n = this.view.showEndpoints ? 0 : this.graph.endpointCount; n < this.graph.nodeCount; n++)
       this.layoutBounds.expandByPoint(point.fromArray(this.layout.positions, n * 3));
+    if (this.mode === 'planes') for (const label of this.layout.labels)
+      this.layoutBounds.expandByPoint(point.fromArray(label.position));
   }
   setView(view: ViewConfig) {
     const old = this.view; this.view = view;
@@ -351,6 +425,7 @@ export class NetworkScene {
     this.cancelBenchmark(msg("Filters changed"));
     const g = this.graph;
     if (this.guides) this.guides.visible = Object.values(filter).every(value => value === null);
+    if (this.sheets) this.sheets.visible = Object.values(filter).every(value => value === null);
     this.visible = new Uint8Array(g.nodeCount);
     const endpoints: number[] = [], nodes: number[] = [];
     this.visibleSwitches = [];
@@ -386,14 +461,14 @@ export class NetworkScene {
   private updateSwitches() {
     if (!this.switches || !this.layout || !this.colors) return;
     const matrix = new THREE.Matrix4(), color = new THREE.Color();
-    const scale = Math.max(0.9, this.layout.span / 150);
+    const scale = Math.max(1.7, this.layout.span / 90) * (this.graph && this.graph.nodeCount - this.graph.endpointCount > 2000 ? 0.7 : 1);
     this.switches.count = this.visibleSwitches.length;
     this.visibleSwitches.forEach((n, i) => {
       const size = scale * (n === this.selected ? 1.18 : 1);
       matrix.makeScale(size * 1.8, size * 0.7, size * 1.2);
       matrix.setPosition(this.layout!.positions[n * 3], this.layout!.positions[n * 3 + 1], this.layout!.positions[n * 3 + 2]);
       this.switches!.setMatrixAt(i, matrix);
-      this.switches!.setColorAt(i, n === this.selected ? color.set('#d3f59a') : color.fromArray(this.colors!, n * 3));
+      this.switches!.setColorAt(i, color.fromArray(this.colors!, n * 3));
     });
     this.switches.instanceMatrix.needsUpdate = true;
     if (this.switches.instanceColor) this.switches.instanceColor.needsUpdate = true;
@@ -403,7 +478,10 @@ export class NetworkScene {
     this.updateSwitches(); this.updateHighlights(); this.updateOpacity(); this.dirty = true;
   }
   private updateOpacity() {
-    if (this.links) this.links.material.uniforms.opacity.value = this.view.opacity * (this.selected !== null || this.path.length || this.allPaths ? 0.08 : 1);
+    if (this.links) {
+      const density = this.graph!.edgeCount > DEPTH_LINK_THRESHOLD ? 1 : Math.max(1, (this.visibleEdgeCount / 1800) ** 0.85);
+      this.links.material.uniforms.opacity.value = this.view.opacity / density * (this.selected !== null || this.path.length || this.allPaths ? 0.13 : 1);
+    }
   }
   private clearHighlights() {
     for (const object of this.highlights) this.scene.remove(object);
@@ -413,7 +491,8 @@ export class NetworkScene {
   private updateHighlights() {
     this.clearHighlights();
     if (!this.graph || !this.layout) return;
-    const edges: number[] = [], nodes = new Set<number>();
+    const edges: number[] = [], edgeColors: number[] = [], nodes = new Set<number>();
+    const fromColor = new THREE.Color(), toColor = new THREE.Color(), segmentColor = new THREE.Color();
     const add = (a: number, b: number) => {
       if (!this.visible[a] || !this.visible[b]) return;
       const p = this.layout!.positions;
@@ -425,6 +504,17 @@ export class NetworkScene {
         edges.push(...av, ...c, ...c, ...d, ...d, ...bv);
       } else {
         edges.push(...av, ...bv);
+      }
+      fromColor.fromBufferAttribute(this.linkColors!, a); toColor.fromBufferAttribute(this.linkColors!, b);
+      if (usesGroupColors(this.graph!, this.view.colorBy)) {
+        // Path traversal can run either way; the upper tier still owns the link color.
+        if (this.graph!.tier[a] > this.graph!.tier[b]) toColor.copy(fromColor);
+        else fromColor.copy(toColor);
+      }
+      const stops = this.view.lines === 'elbow' ? [0, 1 / 3, 1 / 3, 2 / 3, 2 / 3, 1] : [0, 1];
+      for (const t of stops) {
+        segmentColor.copy(fromColor).lerp(toColor, t);
+        edgeColors.push(segmentColor.r, segmentColor.g, segmentColor.b);
       }
       nodes.add(a); nodes.add(b);
     };
@@ -442,15 +532,15 @@ export class NetworkScene {
       }
     }
     if (!nodes.size) return;
-    const geometry = new LineSegmentsGeometry().setPositions(edges);
-    const material = new LineMaterial({ color: '#e2ff9d', linewidth: 3, depthTest: false, depthWrite: false,
+    const geometry = new LineSegmentsGeometry().setPositions(edges).setColors(edgeColors);
+    const material = new LineMaterial({ vertexColors: true, linewidth: 2.6, depthTest: false, depthWrite: false,
       transparent: true, opacity: 1, resolution: new THREE.Vector2(this.width, this.height) });
     const lines = new LineSegments2(geometry, material); lines.renderOrder = 4; lines.frustumCulled = false;
     this.scene.add(lines); this.highlights.push(lines); this.highlightResources.push(geometry, material);
     const pointGeometry = new THREE.BufferGeometry();
     pointGeometry.setAttribute('position', this.positionAttribute!);
     const colors = new Float32Array(this.graph.nodeCount * 3);
-    for (const n of nodes) colors.set([0.7, 1, 0.35], n * 3);
+    for (const n of nodes) colors.set(this.colors!.subarray(n * 3, n * 3 + 3), n * 3);
     pointGeometry.setAttribute('nodeColor', new THREE.BufferAttribute(colors, 3));
     pointGeometry.setIndex([...nodes]);
     const pointMaterial = new THREE.ShaderMaterial({
@@ -464,13 +554,19 @@ export class NetworkScene {
     this.fitAll2D = fitAll;
     const span = this.layout?.span ?? 180, height = this.layout?.height ?? 120;
     const flat = this.mode === 'flat' || this.mode === 'radial';
+    const diagram = this.mode === 'planes';
     const wasRotate = this.controls.autoRotate;
     this.controls.dispose();
-    this.camera = flat ? new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100000)
+    this.camera = flat || diagram ? new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100000)
       : new THREE.PerspectiveCamera(42, this.width / this.height, 0.1, 100000);
     const center = new THREE.Vector3(0, this.mode === 'radial' ? 0 : height * 0.47, 0);
     if (this.layout) this.layoutBounds.getCenter(center);
-    if (flat) {
+    if (diagram) {
+      const distance = Math.max(span * 4, this.layoutBounds.getSize(new THREE.Vector3()).length() * 2);
+      this.camera.far = Math.max(100000, distance * 4);
+      this.camera.position.copy(center).addScaledVector(new THREE.Vector3(1.8, 0.8, 1.15).normalize(), distance);
+      this.camera.lookAt(center); this.updateOrthographicBounds();
+    } else if (flat) {
       this.updateOrthographicBounds(); this.camera.position.set(center.x, center.y, span * 4);
     } else {
       // Fit the actual bounding sphere, including exploded planes, so an orbit does
@@ -561,7 +657,7 @@ export class NetworkScene {
             submittedSegments: this.submittedSegments(), drawCalls: this.renderer.info.render.calls,
             width: this.width, height: this.height, dpr: 1,
             renderer: extension ? String(gl.getParameter(extension.UNMASKED_RENDERER_WEBGL)) : 'Unavailable',
-            lineCompositing: this.graph!.edgeCount > 100000 ? 'depth' : 'blend',
+            lineCompositing: this.graph!.edgeCount > DEPTH_LINK_THRESHOLD ? 'depth' : 'blend',
           };
           this.controls.autoRotate = b.oldRotate; this.benchmarkState = null; b.resolve(result);
         }

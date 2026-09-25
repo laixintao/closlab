@@ -1,8 +1,8 @@
 import { useI18n } from './i18n/I18nProvider';
 import { errorText, LocalizedError, msg, type LocalizedText, type MessageKey } from './i18n/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowDownToLine, ArrowUpFromLine, Box, Check, ChevronDown, ChevronRight, CircleHelp, Expand,
-  Gauge, GitBranch, Languages, Layers3, Link2, LoaderCircle, Maximize, Minimize, MousePointer2, Network, Pause, Play, RotateCcw, Scan, Search, Server, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Box, Check, ChevronDown, CircleHelp, Expand,
+  Gauge, GitBranch, Languages, Layers3, Link2, LoaderCircle, Maximize, Minimize, MousePointer2, Network, Pause, Play, RotateCcw, Scan, Search, SlidersHorizontal, X } from 'lucide-react';
 import ConfigPanel from './components/ConfigPanel';
 import Inspector, { type PathEndpoint, type PathInputs } from './components/Inspector';
 import { NetworkCanvas, type CanvasHandle } from './components/NetworkCanvas';
@@ -11,7 +11,7 @@ import { calculate, findNode, nodeLabel, SpecError } from './model/engine';
 import { formatBandwidth, formatCount } from './model/format';
 import { parseProject, serializeProject } from './model/project';
 import { projectFromQuery, projectToQuery } from './model/url';
-import { DEFAULT_VIEW, EMPTY_FILTER, type BenchmarkResult, type CapacitySummary, type Diagnostic, type Filter,
+import { DEFAULT_VIEW, DEPTH_LINK_THRESHOLD, EMPTY_FILTER, type BenchmarkResult, type CapacitySummary, type Diagnostic, type Filter,
   type FrameStats, type LayoutMode, type LayoutResult, type PathSet, type SavedProject, type TopologyBuffers, type TopologySpec, type ViewConfig } from './model/types';
 import { TopologyClient } from './workers/client';
 import { groupColor, SHARED_COLOR, TIER_COLORS, usesGroupColors, usesPodColors } from './render/colors';
@@ -196,45 +196,38 @@ export default function App() {
   const podColors = result?.graph ? usesPodColors(result.graph) : false;
   return <div className="app">
     <header className="topbar">
-      <a href="./" className="brand" aria-label={t("ClosLab home")}><img src="/favicon.svg" alt="" /><strong>clos<span>lab</span></strong></a>
-      <div className="brand-divider" /><span className="app-subtitle">{t("NETWORK DESIGN STUDIO")}</span>
+      <a href="./" className="brand" aria-label={t("ClosLab home")}><img src="/favicon.svg" alt="" /><strong>ClosLab</strong></a>
+      <h1 className="workspace-title">{t("Fabric workbench")}</h1>
       <nav className="header-actions">
         <label className="language-switch"><Languages size={15} />
           <select aria-label={t('Language')} value={locale} onChange={e => setLocale(e.target.value as 'en' | 'zh-CN')}>
             <option value="en" lang="en">English</option><option value="zh-CN" lang="zh-CN">中文</option>
           </select>
         </label>
-        <span className="local-badge"><span className="status-dot" />{t("Local workspace")}</span>
         <button className="quiet-button" aria-label={t("Model guide")} onClick={() => setHelp(true)}><CircleHelp size={15} /><span>{t("Model guide")}</span></button>
         <button className="quiet-button" aria-label={t("Import")} onClick={() => fileInput.current?.click()}><ArrowUpFromLine size={15} /><span>{t("Import")}</span></button>
         <button className="quiet-button" aria-label={t("Copy share link")} title={t("Copy a share link for the generated network")} onClick={() => void copyShareLink()}>
           {copied ? <Check size={15} /> : <Link2 size={15} />}<span>{copied ? t("Copied") : t("Share")}</span></button>
-        <button aria-label={t("Export configuration")} className="secondary-button export-button" onClick={() => download(serializeProject(applied, view), 'closlab-network.json')}><ArrowDownToLine size={14} /><span>{t("Export configuration")}</span></button>
         <input ref={fileInput} aria-label={t("Import configuration file")} type="file" accept=".json,application/json" hidden onChange={e => void importProject(e.target.files?.[0])} />
       </nav>
     </header>
-    <div className="workspace-heading">
-      <div><div className="breadcrumb">{t("Workspace")}<ChevronRight size={12} />{t("Network design")}</div>
-        <h1>{t("Fabric workbench")} <span>{t("PROTOTYPE")}</span></h1></div>
-      <p>{t("From ports to fabrics, explore every connection.")}</p>
-    </div>
     <main className="workbench-content">
-      <ConfigPanel spec={draft} setSpec={setDraft} errors={errors} busy={busy} dirty={dirty}
+      <ConfigPanel spec={draft} setSpec={setDraft} errors={errors} busy={busy}
         onApply={() => { if (!errors.length) { setUrlError(''); setApplied(structuredClone(draft)); setTab('topology'); } }}
         onReset={() => setDraft(structuredClone(DEFAULT_SPEC))} />
       <section className="results-section" aria-labelledby="results-heading">
-        <div className="results-heading"><div><span className="section-step">02</span><h2 id="results-heading">{t("Results")}</h2><p>{t("Capacity and topology visualization")}</p></div>
-          <span className={'results-state' + (dirty ? ' is-pending' : '')} role="status">
-            <span className={'status-dot' + (dirty ? ' pending' : '')} />{busy ? t("Generating network…") : dirty ? t("Unapplied changes · Showing previous results") : t("Inputs and results are in sync")}</span>
+        <div className={'results-heading' + (busy || dirty ? '' : ' is-settled')}><h2 id="results-heading" className="visually-hidden">{t("Results")}</h2>
+          {(busy || dirty) && <span className={'results-state' + (dirty ? ' is-pending' : '')} role="status">
+            <span className={'status-dot' + (dirty ? ' pending' : '')} />{busy ? t("Generating network…") : t("Unapplied changes · Showing previous results")}</span>}
         </div>
         <section className="metrics" aria-label={t("Network statistics")}>
-          <div className="metric"><div><Server size={15} /><span>{t("Endpoints")}</span></div><strong data-testid="endpoint-count">{summary ? formatCount(summary.endpoints) : '—'}<small>{t("ENDPOINTS")}</small></strong>
+          <div className="metric"><div><span>{t("Endpoints")}</span></div><strong data-testid="endpoint-count">{summary ? formatCount(summary.endpoints) : '—'}</strong>
             <p>{summary ? t('Maximum capacity {count}', { count: formatCount(summary.maxEndpoints) }) : t("Waiting for capacity calculation")}</p></div>
-          <div className="metric"><div><Layers3 size={15} /><span>{t("Switches")}</span></div><strong data-testid="switch-count">{summary ? formatCount(summary.switchCount) : '—'}<small>{t("SWITCHES")}</small></strong>
+          <div className="metric"><div><span>{t("Switches")}</span></div><strong data-testid="switch-count">{summary ? formatCount(summary.switchCount) : '—'}</strong>
             <p>{t(naturalGroups ? '{tiers} switch tiers · {planes} auto planes' : colorGroupCount === 1 ? '{tiers} switch tiers · {planes} plane' : '{tiers} switch tiers · {planes} planes', { tiers: currentSpec.tiers.length, planes: Math.max(1, colorGroupCount) })}</p></div>
-          <div className="metric"><div><GitBranch size={15} /><span>{t("Physical links")}</span></div><strong data-testid="link-count">{summary ? formatCount(summary.totalLinks) : '—'}<small>{t("LINKS")}</small></strong>
+          <div className="metric"><div><span>{t("Physical links")}</span></div><strong data-testid="link-count">{summary ? formatCount(summary.totalLinks) : '—'}</strong>
             <p>{t("Includes endpoint access and inter-tier links")}</p></div>
-          <div className="metric bandwidth-metric"><div><Activity size={15} /><span>{t("Endpoint injection bandwidth")}</span></div><strong data-testid="bandwidth">{summary ? formatBandwidth(summary.injectionMbps) : '—'}</strong>
+          <div className="metric bandwidth-metric"><div><span>{t("Endpoint injection bandwidth")}</span></div><strong data-testid="bandwidth">{summary ? formatBandwidth(summary.injectionMbps) : '—'}</strong>
             <p>{t('One-way · {bandwidth} per endpoint', { bandwidth: summary ? formatBandwidth(summary.endpointMbps) : '—' })}</p></div>
         </section>
         <div className="workbench">
@@ -242,7 +235,7 @@ export default function App() {
             <div className="workspace-tabs"><div>
               <button className={tab === 'topology' ? 'active' : ''} onClick={() => setTab('topology')}><Network size={14} />{t("Topology")}</button>
               <button className={tab === 'capacity' ? 'active' : ''} onClick={() => setTab('capacity')}><SlidersHorizontal size={14} />{t("Capacity details")}</button>
-            </div><span className="view-caption">{busy ? t("Building") : dirty ? t("Unapplied changes") : t('FOLDED CLOS')}</span></div>
+            </div></div>
             <div className={'canvas-shell' + (focused ? ' is-focused' : '')} style={{ display: tab === 'topology' ? undefined : 'none' }}>
               <div className="canvas-toolbar">
                 <div className="layout-select"><Box size={14} /><select aria-label={t("Topology layout")} value={view.layout} onChange={e => updateView({ layout: e.target.value as LayoutMode })}>
@@ -265,7 +258,7 @@ export default function App() {
                   selected={selected} path={path} allPaths={allPaths} onPick={pickCanvasNode} onStats={setStats} onError={setRenderError} />
                 <div className="canvas-top-label"><span className="status-dot" /><span>{hasFilter || !view.showEndpoints ? t("Filtered view") : t("Full topology")}</span>
                   <span className="canvas-label-divider" />{t(colorGroupCount === 1 ? '{tiers} tiers · {planes} plane' : '{tiers} tiers · {planes} planes', { tiers: currentSpec.tiers.length, planes: Math.max(1, colorGroupCount) })}{naturalGroups ? t(' · Auto-detected') : ''}
-                  {(result?.graph?.edgeCount ?? 0) > 100000 && <span>{t('· Depth occlusion')}</span>}</div>
+                  {(result?.graph?.edgeCount ?? 0) > DEPTH_LINK_THRESHOLD && <span>{t('· Depth occlusion')}</span>}</div>
                 {view.layout === 'flat' && <div className="pan-hint">{t("Scroll to zoom · Right-drag to pan")}</div>}
                 <div className="canvas-legend">{!groupedColors
                   ? [t("Endpoints"), ...currentSpec.tiers.map((_, i) => 'T' + i)].map((label, i) =>
@@ -292,7 +285,6 @@ export default function App() {
                     disabled={benchmarkBusy || !result?.graph || busy || layoutBusy} onClick={() => void runBenchmark()}>
                     {benchmarkBusy ? <LoaderCircle className="spin" size={15} /> : <Gauge size={16} />}</button>
                 </div>
-                <div className="orientation"><span>Y</span><i /><b>X</b><em>Z</em></div>
                 {pickingPathEndpoint && <div className="selection-chip path-pick-prompt" data-testid="path-pick-prompt" role="status">
                   <MousePointer2 size={12} />{t(pickingPathEndpoint === 'source' ? 'Click a node to set the source · Esc to cancel' : 'Click a node to set the destination · Esc to cancel')}
                   <button aria-label={t('Cancel node picking')} onClick={() => setPickingPathEndpoint(null)}><X size={12} /></button>
@@ -327,7 +319,7 @@ export default function App() {
               </div>
             </div>
             {tab === 'capacity' && summary && <div className="capacity-view">
-              <div className="capacity-title"><span className="eyebrow">{t("CAPACITY BREAKDOWN")}</span><h2>{t("Every tier, accounted for.")}</h2><p>{t("Device counts, port allocation, and one-way capacity for the generated network.")}</p></div>
+              <div className="capacity-title"><h2>{t("Capacity details")}</h2></div>
               <div className="table-scroll"><table><thead><tr><th>{t("Tier")}</th><th>{t("Switches")}</th><th>{t("Effective ports / switch")}</th><th>{t("Down / Up")}</th><th>{t("Reserved / Unassigned")}</th><th>{t("ASIC bandwidth / switch")}</th></tr></thead>
                 <tbody>{currentSpec.tiers.map((p, i) => <tr key={i}><td><i className="table-dot" style={{ background: TIER_COLORS[i + 1] }} />T{i}</td>
                   <td>{formatCount(summary.switches[i])}</td><td>{p.ports * p.breakout}</td><td>{p.down} / {p.up}</td><td>{p.reserved} / {p.ports * p.breakout - p.down - p.up - p.reserved}</td><td>{p.chipTbps} Tbps</td></tr>)}</tbody></table></div>
@@ -344,10 +336,9 @@ export default function App() {
         </div>
       </section>
     </main>
-    <footer className="app-footer"><span><Check size={11} />{t("Parameter-driven · Local computation · Every connection")}</span><span>ClosLab <b>v0.1</b><span className="footer-separator">/</span> {t('BUILD YOUR FABRIC')}</span></footer>
     {(message || urlError) && <div className="toast" role="alert"><CircleHelp size={16} /><span>{text(message || urlError)}</span><button aria-label={t("Dismiss message")} onClick={() => { setMessage(''); setUrlError(''); }}><X size={14} /></button></div>}
     <dialog ref={dialog} className="help-dialog" onClose={() => setHelp(false)}>
-      <div className="dialog-heading"><div><span className="eyebrow">{t("THE MODEL")}</span><h2>{t("Understand your Clos network")}</h2></div><button className="icon-button" aria-label={t("Close model guide")} onClick={() => setHelp(false)}><X size={18} /></button></div>
+      <div className="dialog-heading"><h2>{t("Understand your Clos network")}</h2><button className="icon-button" aria-label={t("Close model guide")} onClick={() => setHelp(false)}><X size={18} /></button></div>
       <div className="dialog-content">
         <h3>{t("Regular, verifiable connections")}</h3><p>{t("Each tier defines downlinks d and uplinks u. The generator groups switches recursively using mixed-radix rules, connects each lower switch to distinct upper switches in its group, and preserves every uplink path. Tiers count switch layers only.")}</p>
         <div className="formula">N<sub>max</sub> = d₀ × d₁ × … × d<sub>t−1</sub></div>
@@ -357,7 +348,7 @@ export default function App() {
         <h3>{t("Hardware and bandwidth")}</h3><p>{t("Effective ports = physical ports × breakout. Changing ASIC bandwidth, physical ports, or breakout updates logical port speed; it can also be set manually. ASIC bandwidth sums all one-way port capacities. All used logical ports on a switch share one speed, which must match across adjacent tiers.")}</p>
         <p>{t("Each independent point-to-point breakout connection counts as one link. The tool does not infer transceiver, fiber strand, or breakout cable assembly counts.")}</p>
         <h3>{t("Full-topology visualization")}</h3><p>{t("Expand up to 250,000 total nodes and 5,000,000 links. All endpoints and links are submitted to the GPU; distant overlap does not change counts. Only explicit filters reduce the displayed objects. The canvas footer shows current rendered counts, and exact capacity statistics remain available beyond the rendering limit.")}</p>
-        <p>{t("Above 100,000 links, standard depth occlusion and color intensity replace transparency blending to reduce overdraw. Nodes render in a separate depth pass to remain visible and selectable. Every link is still submitted, without sampling.")}</p>
+        <p>{t("Above 500,000 links, standard depth occlusion and color intensity replace transparency blending to reduce overdraw. Nodes render in a separate depth pass to remain visible and selectable. Every link is still submitted, without sampling.")}</p>
         <p>{t("3D layered, expanded planes, 2D layered, and radial layouts share one graph. Node IDs include E-0 and T0-0. Click a node to inspect its neighbors or search by ID. Explore one shortest path or all equal-cost shortest paths (ECMP), with shared links highlighted once and an exact total path count.")}</p>
         <h3>{t("References and scope")}</h3><p>{t("This version does not simulate congestion control, packet transmission, or paper performance results. F16 and MRC validate the general rules; neither uses a dedicated scenario generator.")}</p>
         <div className="reference-links"><a href="https://engineering.fb.com/2019/03/14/data-center-engineering/f16-minipack/" target="_blank" rel="noreferrer">Meta F16 / Minipack ↗</a>

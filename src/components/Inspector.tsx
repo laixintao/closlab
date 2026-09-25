@@ -1,7 +1,7 @@
 import { useI18n } from '../i18n/I18nProvider';
-import { ArrowDownUp, ArrowUpRight, Check, CircleDot, Crosshair, GitBranch, Info, X } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, CircleDot, Crosshair, GitBranch, Info, X } from 'lucide-react';
 import { nodeInfo, nodeLabel } from '../model/engine';
-import { formatBandwidth, formatCount, ratio } from '../model/format';
+import { formatCount, ratio } from '../model/format';
 import { nodeColor, TIER_COLORS } from '../render/colors';
 import type { CapacitySummary, Filter, PathSet, TopologyBuffers, TopologySpec, ViewConfig } from '../model/types';
 
@@ -25,64 +25,54 @@ export default function Inspector({ spec, summary, graph, colorBy, selected, onS
   const planeCount = Math.max(1, graph?.colorGroupCount ?? spec.planes);
   return <aside className="inspector">
     <div className="panel-heading"><div><CircleDot size={15} /><strong>{info ? t("Node details") : t("Network overview")}</strong></div>
-      {info ? <button className="icon-button" aria-label={t("Close node details")} onClick={() => onSelect(null)}><X size={14} /></button> : <span className="tiny-badge">{t("LIVE")}</span>}
+      {info && <button className="icon-button" aria-label={t("Close node details")} onClick={() => onSelect(null)}><X size={14} /></button>}
     </div>
-    <div className="inspector-scroll">
+    <div className="inspector-content">
       {info && graph ? <section className="inspector-section node-inspector">
         <div className="node-title"><span style={{ background: nodeColor(graph, info.index, colorBy) }} /><h2>{info.label}</h2>
+          <small>{info.tier < 0 ? t("Endpoint / NIC") : t('Tier {tier} switch', { tier: info.tier })}</small>
           <button className="icon-button" aria-label={t("Focus selected node")} onClick={() => onSelect(info.index, true)}><Crosshair size={15} /></button></div>
         <dl className="detail-list">
-          <div><dt>{t("Device type")}</dt><dd>{info.tier < 0 ? t("Endpoint / NIC") : t('Tier {tier} switch', { tier: info.tier })}</dd></div>
           <div><dt>{t("Plane membership")}</dt><dd>{graph.colorGroupKind === 'tier' ? t("Single plane") : graph.colorGroup[info.index] < 0
             ? t("Shared by all planes") : t(autoPlanes ? 'Auto plane P{plane}' : 'Plane {plane}', { plane: graph.colorGroup[info.index] })}</dd></div>
           <div><dt>{t("Pod membership")}</dt><dd>{info.pod < 0 ? t("Shared across Pods") : 'Pod ' + info.pod}</dd></div>
-          <div><dt>{t("Ports in use")}</dt><dd>{info.usedPorts} / {info.totalPorts}</dd></div>
-          <div><dt>{t("Reserved ports")}</dt><dd>{info.reservedPorts}</dd></div>
+          <div className="node-ports"><dt>{t("Ports in use")}</dt><dd>{info.usedPorts} / {info.totalPorts} <span title={t("Reserved ports")}>({t('{count} reserved', { count: info.reservedPorts })})</span></dd></div>
         </dl>
-        <div className="subheading">{t("Direct neighbors")} <span>{info.neighbors.length}</span></div>
-        <div className="neighbor-list">{info.neighbors.slice(0, 24).map(n => <button key={n} onClick={() => onSelect(n, true)}>{nodeLabel(graph, n)}<ArrowUpRight size={11} /></button>)}</div>
-        {info.neighbors.length > 24 && <p className="field-hint">{t('Showing the first 24 neighbors; all {count} connections are highlighted.', { count: info.neighbors.length })}</p>}
-        <div className="node-actions"><button onClick={() => onPathInputChange('source', info.label)}>{t("Set as source")}</button><button onClick={() => onPathInputChange('target', info.label)}>{t("Set as destination")}</button></div>
-      </section> : <>
-        <section className="inspector-section">
-          <div className="subheading">{t("Node composition")} <span>{t("NODES")}</span></div>
+        <div className="node-actions"><button onClick={() => onPathInputChange('source', info.label)}>{t("Set as source")}</button><button onClick={() => onPathInputChange('target', info.label)}>{t("Set as destination")}</button>
+          <button popoverTarget="node-neighbors" className="neighbors-trigger" title={t("Direct neighbors")}>{t("Neighbors")} ({info.neighbors.length})</button></div>
+        <div id="node-neighbors" popover="auto" className="neighbors-popover">
+          <div className="subheading">{info.label} · {t("Direct neighbors")} ({info.neighbors.length})
+            <button className="icon-button" popoverTarget="node-neighbors" popoverTargetAction="hide" aria-label={t("Close neighbors")}><X size={15} /></button></div>
+          <div className="neighbor-list">{info.neighbors.slice(0, 24).map(n => <button key={n} onClick={() => onSelect(n, true)}>{nodeLabel(graph, n)}<ArrowUpRight size={11} /></button>)}</div>
+          {info.neighbors.length > 24 && <p className="field-hint">{t('Showing the first 24 neighbors; all {count} connections are highlighted.', { count: info.neighbors.length })}</p>}
+        </div>
+      </section> : <section className="inspector-section network-summary">
           {summary && <div className="composition-list">
             <div><i style={{ background: TIER_COLORS[0] }} /><span>{t("Endpoints")}</span><strong>{formatCount(summary.endpoints)}</strong></div>
             {summary.switches.map((count, i) => <div key={i}><i style={{ background: TIER_COLORS[i + 1] }} />
-              <span>T{i} <small>{i === 0 ? t("Access tier") : i === spec.tiers.length - 1 ? t("Top") : t("Aggregation tier")}</small></span><strong>{formatCount(count)}</strong></div>)}
+              <span title={i === 0 ? t("Access tier") : i === spec.tiers.length - 1 ? t("Top") : t("Aggregation tier")}>T{i}</span><strong>{formatCount(count)}</strong></div>)}
           </div>}
-          <div className="composition-bar">{summary && [summary.endpoints, ...summary.switches].map((n, i) =>
-            <span key={i} style={{ background: TIER_COLORS[i], flexGrow: ratio(n, summary.totalNodes), minWidth: 3 }} />)}</div>
-        </section>
-        <section className="inspector-section">
-          <div className="subheading">{t("Capacity and links")} <ArrowDownUp size={13} /></div>
-          {summary && <dl className="detail-list">
-            <div><dt>{t("Maximum endpoints")}</dt><dd>{formatCount(summary.maxEndpoints)}</dd></div>
-            <div><dt>{t("Installed access slots")}</dt><dd>{formatCount(summary.endpointSlots)}</dd></div>
-            <div><dt>{t("Access slot utilization")}</dt><dd>{ratio(summary.endpoints, summary.endpointSlots).toFixed(1)}%</dd></div>
-            <div><dt>{t("Bandwidth per endpoint")}</dt><dd>{formatBandwidth(summary.endpointMbps)}</dd></div>
+          {summary && <dl className="detail-list summary-details">
+            <div><dt>{t("Access slots / used")}</dt><dd>{formatCount(summary.endpointSlots)} / {ratio(summary.endpoints, summary.endpointSlots).toFixed(1)}%</dd></div>
             <div><dt>{t("Endpoint access links")}</dt><dd>{formatCount(summary.links[0])}</dd></div>
             <div><dt>{t("Inter-switch links")}</dt><dd>{formatCount(summary.totalLinks - summary.links[0])}</dd></div>
-            <div><dt>{autoPlanes ? t("Auto planes / tiers") : t("Planes / tiers")}</dt><dd>{planeCount} / {spec.tiers.length}</dd></div>
           </dl>}
-          <div className="info-note"><Info size={13} /><span>{t("Bandwidth uses one-way port capacity. Each bidirectional connection counts as one link.")}</span></div>
-        </section>
-      </>}
-      <section className="inspector-section">
+        </section>}
+      <section className="inspector-section filters-section">
         <div className="subheading">{t("View filters")} <button className="text-button" onClick={() => setFilter({ tier: null, plane: null, pod: null })}>{t("Clear")}</button></div>
         <div className="filter-grid">
-          <label className="field"><span>{t("Tier")}</span><select aria-label={t("Filter tier")} value={filter.tier ?? 'all'} onChange={e => setFilter({ ...filter, tier: e.target.value === 'all' ? null : Number(e.target.value) })}>
+          <label className="field"><span className="visually-hidden">{t("Tier")}</span><select aria-label={t("Filter tier")} value={filter.tier ?? 'all'} onChange={e => setFilter({ ...filter, tier: e.target.value === 'all' ? null : Number(e.target.value) })}>
             <option value="all">{t("All tiers")}</option><option value={-1}>{t("Endpoints")}</option>{spec.tiers.map((_, i) => <option key={i} value={i}>Tier {i}</option>)}
           </select></label>
-          <label className="field"><span>{t("Plane")}</span><select aria-label={t("Filter plane")} value={filter.plane ?? 'all'} onChange={e => setFilter({ ...filter, plane: e.target.value === 'all' ? null : Number(e.target.value) })}>
+          <label className="field"><span className="visually-hidden">{t("Plane")}</span><select aria-label={t("Filter plane")} value={filter.plane ?? 'all'} onChange={e => setFilter({ ...filter, plane: e.target.value === 'all' ? null : Number(e.target.value) })}>
             <option value="all">{t("All planes")}</option>{Array.from({ length: planeCount }, (_, i) => <option key={i} value={i}>{t(autoPlanes ? 'Auto plane P{plane}' : 'Plane {plane}', { plane: i })}</option>)}
           </select></label>
-        </div>
-        <label className="field pod-filter"><span>{t("Pod ID")} <small>{t("Leave blank for all")}</small></span>
+        <label className="field pod-filter" title={t("Leave blank for all")}><span className="visually-hidden">{t("Pod ID")}</span>
           <input aria-label={t("Filter Pod")} type="number" min={0} max={Math.max(0, pods - 1)} placeholder={t("All Pods")} value={filter.pod ?? ''}
             onChange={e => setFilter({ ...filter, pod: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+        </div>
       </section>
-      <section className="inspector-section">
+      <section className="inspector-section path-section">
         <div className="subheading">{t("Path explorer")} <GitBranch size={13} /></div>
         <div className="path-inputs">
           <div className={'path-endpoint' + (pickingPathEndpoint === 'source' ? ' is-picking' : '')}>
@@ -92,7 +82,7 @@ export default function Inspector({ spec, summary, graph, colorBy, selected, onS
               aria-pressed={pickingPathEndpoint === 'source'} disabled={!graph}
               onClick={() => onPickPathEndpoint(pickingPathEndpoint === 'source' ? null : 'source')}><Crosshair size={15} /></button>
           </div>
-          <div className="path-connector" />
+          <ArrowRight className="path-connector-arrow" size={14} aria-hidden="true" />
           <div className={'path-endpoint' + (pickingPathEndpoint === 'target' ? ' is-picking' : '')}>
             <i className="dot violet" /><input aria-label={t("Destination node")} value={target} placeholder="E-1"
               onClick={() => graph && onPickPathEndpoint('target')} onChange={e => onPathInputChange('target', e.target.value)} />
@@ -118,6 +108,5 @@ export default function Inspector({ spec, summary, graph, colorBy, selected, onS
         <div className="subheading">{t("Planning notes")}</div>{summary.warnings.map((warning, i) => <p key={i}><Info size={12} />{text(warning)}</p>)}
       </section>}
     </div>
-    <div className="inspector-footer"><span className="status-dot" /> {t("Deterministic generation · No node sampling")}</div>
   </aside>;
 }

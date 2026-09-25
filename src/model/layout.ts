@@ -165,6 +165,12 @@ export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary:
   }
   const guidePositions: number[] = [], guideGroups: number[] = [];
   const labels: LayoutResult['labels'] = [];
+  if (podSheets) {
+    for (const [tier, name] of [[2, 'Spine'], [1, 'Fabric'], [0, 'ToR']] as const) {
+      labels.push({ text: `${name} · T${tier}`, position: [leafRowWidth / 2 + switchStep * 7, (tier + 1) * gap, podZ(0) - switchStep * 3],
+        plane: null, pod: null });
+    }
+  }
   const frame = (corners: number[][], group: number) => {
     for (let i = 0; i < 4; i++) {
       guidePositions.push(...corners[i], ...corners[(i + 1) % 4]);

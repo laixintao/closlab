@@ -45,7 +45,7 @@ test('defaults to English, switches without losing work, and remembers the langu
   await page.getByLabel('语言', { exact: true }).selectOption('en');
   await expect(page.locator('.notes-section')).toContainText('The final access group is partially filled');
   await page.getByRole('button', { name: 'Capacity details', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Every tier, accounted for.', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Capacity details', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Model guide', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Two plane split boundaries');
   await page.getByRole('button', { name: 'Close model guide', exact: true }).click();
@@ -91,12 +91,12 @@ test('language and canvas controls remain reachable on mobile in both languages'
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-ready', 'true');
-  for (const [label, language, focus, exit, reset, exportLabel] of [
-    ['Language', 'zh-CN', '专注模式', '退出专注模式', '重置视图', '导出配置'],
-    ['语言', 'en', 'Focus mode', 'Exit focus mode', 'Reset view', 'Export configuration'],
+  for (const [label, language, focus, exit, reset, shareLabel] of [
+    ['Language', 'zh-CN', '专注模式', '退出专注模式', '重置视图', '复制分享链接'],
+    ['语言', 'en', 'Focus mode', 'Exit focus mode', 'Reset view', 'Copy share link'],
   ]) {
     await page.getByLabel(label, { exact: true }).selectOption(language);
-    await expect(page.getByRole('button', { name: exportLabel, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: shareLabel, exact: true })).toBeVisible();
     await page.locator('.canvas-toolbar').scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: focus, exact: true })).toBeInViewport();
     await expect(page.getByRole('button', { name: reset, exact: true })).toBeInViewport();

@@ -61,6 +61,21 @@ ClosLab 构建后是静态网站，Pages 直接托管 `dist/` 即可。计算和
 
 如果部署日志出现 Yarn 和 `YN0028`，说明构建仍在使用 Yarn。请确认部署的提交中已移除 `yarn.lock`，在当前部署环境（Production 或 Preview）设置 `SKIP_DEPENDENCY_INSTALL=1`，并将构建命令设为 `npm ci && npm run build`。保存设置后重新部署更新后的提交，安装日志应显示 npm。`YN0028` 表示 Yarn 安装需要修改锁文件，但当前启用了不可变安装；参见 [Yarn 错误说明](https://yarnpkg.com/advanced/error-codes#yn0028---frozen_lockfile_exception)。
 
+### 通过 GitHub Actions 自动部署
+
+仓库附带的 [Deploy Cloudflare Pages workflow](.github/workflows/cloudflare-pages.yml) 会在每次推送到 `main` 时自动请求 Pages 构建，包括合并 PR 后的推送，同时保留在 `main` 上手动重试的入口。将 hook URL 保存在 GitHub Actions Secret 中，不要提交到 workflow、`.env` 文件或应用源码。
+
+1. 在 Cloudflare Pages 项目中打开 **Settings → Builds → Add deploy hook**，填写名称并将构建分支设为 `main`，复制生成的 URL。
+2. 在 GitHub 仓库打开 **Settings → Secrets and variables → Actions → New repository secret**。名称填 `CLOUDFLARE_DEPLOY_HOOK`，值只填完整 URL，不包含 `curl` 命令。
+3. 将 workflow 推送到 `main`，本次及后续推送到 `main` 都会自动请求部署。需要手动重试时，打开 **Actions → Deploy Cloudflare Pages → Run workflow** 并选择 `main`。
+4. 如果 Pages 的 Git 集成也启用了生产分支自动部署，请在 Pages 项目的分支部署设置中关闭 **Enable automatic production branch deployments**，避免重复构建。保留 GitHub 仓库连接，让 hook 能拉取源码。参见 [Cloudflare 分支部署控制](https://developers.cloudflare.com/pages/configuration/branch-build-controls/)。
+
+workflow 通过环境变量读取 `${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}`。运行成功只表示部署请求已接受，实际构建结果请在 Cloudflare 查看。构建分支由 Cloudflare 中的 hook 配置决定，请保持为 `main`。在其他分支手动运行时会跳过部署任务。上述 npm 构建配置仍需保留。
+
+提交或更新 PR 不会触发此部署 workflow，部署任务也不会检出或执行应用代码。请保护 `main`，合并前审核 `.github/workflows/` 的改动。拥有仓库写权限的协作者仍能通过 workflow 访问 Repository Secrets；分支过滤不能阻止拥有写权限的人或已合并的恶意 workflow 泄露密钥。参见 [GitHub workflow 安全说明](https://docs.github.com/en/actions/reference/security/secure-use)。
+
+hook URL 本身就是部署凭据，无需额外 API Token。如果 URL 被公开或怀疑有人未经授权使用，请删除原 hook、创建新 hook，并更新 Secret。参见 [GitHub Actions Secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets) 和 [Cloudflare Deploy Hooks](https://developers.cloudflare.com/pages/configuration/deploy-hooks/)。
+
 ### 从本机直接上传
 
 在本机先执行：
@@ -97,7 +112,7 @@ Direct Upload 项目无法直接转换为 Git 集成项目；如需后续自动�
 
 平面颜色与几何布局均自动生成。未显式分平面的 3–5 tier 拓扑，会移除共享 Leaf 层后按上层实际连通分量识别平面；显式多平面配置使用配置的平面分组。3D 中每个平面是独立的竖直面、每层一行；三层网络的共享 ToR 按 Pod 横排，同一 Pod 的 Fabric Switch 位于这些横排上方。平面及 Pod 边框、Plane / Pod 编号都是辅助标注，不计入设备和物理链路；规模较大时每类最多标注前 64 个，全部设备和链路仍照常渲染。2D 中自动平面同样横向平铺。Pod 布局下，下方每个 Pod 的 ToR、Fabric、ToR–Fabric 连线、边框及标签统一使用 Pod 颜色；上方 Fabric–Spine 连线、Spine 和平面边框保持网络平面颜色，终端保持中性色。平面筛选与节点详情使用同一组平面编号。ToR 只连接本 Pod 的 T1；T1 向上只进入所属平面的 Spine。共享 Spine 可以服务多个 Pod，Pod 筛选会保留它们。默认两层单平面网络整体放在同一个几何面内：T0、T1 各占一行，终端也位于该面，统一使用 P0 颜色。径向布局仍按同心层组织。已有 `colorBy=tier` 链接会自动升级为平面着色，无需选择颜色模式。
 
-参数和视图会本地保存；每次生成网络或修改视图，地址栏 query params 会同步当前已应用配置。点击顶部「分享」复制链接，打开链接直接还原网络，链接参数优先于浏览器本地保存的配置。未应用的输入不会写入分享链接。也可使用「导出配置」「导入」交换 JSON。
+参数和视图会本地保存；每次生成网络或修改视图，地址栏 query params 会同步当前已应用配置。点击顶部「分享」复制链接，打开链接直接还原网络，链接参数优先于浏览器本地保存的配置。未应用的输入不会写入分享链接。已有的 JSON 配置文件可通过「导入」加载。
 
 2D 大图默认按层间高度取景，长行可以延伸到视口外，避免为塞下所有平面而缩成细线。滚轮缩放、右键拖动平移；点击画布右下角「查看全图」可看到完整范围，图区域顶部的「Reset view」恢复初始可读比例。
 
