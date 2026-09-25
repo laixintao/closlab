@@ -13,10 +13,10 @@ test('131,072 terminals + 6,144 switches + 2,097,152 links, 30-second full-viewp
   });
   await page.goto('/');
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-ready', 'true');
-  await page.getByRole('button', { name: '专注模式', exact: true }).click();
+  await page.getByRole('button', { name: "Focus mode", exact: true }).click();
   const spec = uniformSpec(64, 2, 100, 8); spec.planes = 8;
   const start = performance.now();
-  await page.getByLabel('导入配置文件').setInputFiles({
+  await page.getByLabel("Import configuration file").setInputFiles({
     name: 'full-fabric.json', mimeType: 'application/json', buffer: Buffer.from(serializeProject(spec, DEFAULT_VIEW)),
   });
   const status = page.getByTestId('render-status');
@@ -27,10 +27,10 @@ test('131,072 terminals + 6,144 switches + 2,097,152 links, 30-second full-viewp
   const firstInteractiveMs = performance.now() - start;
   await mkdir('artifacts', { recursive: true });
   await page.screenshot({ path: 'artifacts/full-fabric.png' });
-  await page.getByRole('button', { name: '运行30秒性能测试', exact: true }).click();
+  await page.getByRole('button', { name: "Run 30-second benchmark", exact: true }).click();
   await expect(page.getByTestId('benchmark-result')).toBeVisible({ timeout: 45000 });
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: '下载性能报告', exact: true }).click();
+  await page.getByRole('button', { name: "Download benchmark report", exact: true }).click();
   const download = await downloadPromise;
   const report = JSON.parse(await readFile((await download.path())!, 'utf8'));
   const completeReport = {

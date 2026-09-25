@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { errorText, LocalizedError, msg } from '../i18n/core';
 import { calculate, generate, shortestPath } from '../model/engine';
 import { layoutGraph } from '../model/layout';
 import { allShortestPaths } from '../model/paths';
@@ -28,18 +29,18 @@ self.onmessage = (event: MessageEvent) => {
       self.postMessage({ id, result: { spec, summary, graph: copy, layout, elapsedMs: performance.now() - start } },
         [...transfer, layout.positions.buffer, layout.guides.buffer, layout.guideGroups.buffer] as ArrayBuffer[]);
     } else if (kind === 'layout') {
-      if (!graph) throw new Error('请先生成网络');
+      if (!graph) throw new LocalizedError(msg("Generate a network first"));
       const result = layoutGraph(graph, spec, summary, payload.mode as LayoutMode);
       self.postMessage({ id, result }, [result.positions.buffer, result.guides.buffer, result.guideGroups.buffer]);
     } else if (kind === 'allPaths') {
-      if (!graph) throw new Error('请先生成网络');
+      if (!graph) throw new LocalizedError(msg("Generate a network first"));
       const result = allShortestPaths(graph, payload.source, payload.target);
       self.postMessage({ id, result }, [result.nodes.buffer, result.edges.buffer]);
     } else if (kind === 'path') {
-      if (!graph) throw new Error('请先生成网络');
+      if (!graph) throw new LocalizedError(msg("Generate a network first"));
       self.postMessage({ id, result: shortestPath(graph, payload.source, payload.target) });
-    } else throw new Error('未知计算任务');
+    } else throw new LocalizedError(msg("Unknown computation task"));
   } catch (error) {
-    self.postMessage({ id, error: error instanceof Error ? error.message : '计算失败' });
+    self.postMessage({ id, error: errorText(error) });
   }
 };

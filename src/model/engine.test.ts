@@ -185,20 +185,20 @@ describe('validation, persistence and layouts', () => {
   it('rejects invalid external data without allocating a graph', () => {
     for (const value of [null, {}, { tiers: [null, {}] }]) expect(validateSpec(value).length).toBeGreaterThan(0);
     const s = uniformSpec(); s.tiers[0].up = 33;
-    expect(() => calculate(s)).toThrow('有效端口');
+    expect(() => calculate(s)).toThrow("effective ports");
     s.tiers[0].up = 16; s.tiers[1].portGbps = 400;
-    expect(() => calculate(s)).toThrow('速率必须一致');
+    expect(() => calculate(s)).toThrow("speeds must match");
     s.tiers[1].portGbps = 100; s.planes = 3; s.planeStart = 1;
-    expect(() => calculate(s)).toThrow('整除');
+    expect(() => calculate(s)).toThrow("divisible");
   });
   it('rejects targets beyond capacity and preserves counts beyond safe integers', () => {
     const s = uniformSpec(); s.mode = 'endpoints'; s.targetEndpoints = 513;
-    expect(() => calculate(s)).toThrow('最大容量');
+    expect(() => calculate(s)).toThrow("maximum capacity");
     const huge = uniformSpec(4096, 5, 0.1, 64);
     const c = calculate(huge);
     expect(c.maxEndpoints).toBeGreaterThan(BigInt(Number.MAX_SAFE_INTEGER));
     expect(c.canRender).toBe(false);
-    expect(() => generate(huge, c)).toThrow('预算');
+    expect(() => generate(huge, c)).toThrow("budget");
   });
   it('round-trips JSON and validates view state', () => {
     const s = multi(100000);

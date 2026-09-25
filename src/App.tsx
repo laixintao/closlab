@@ -1,8 +1,10 @@
+import { useI18n } from './i18n/I18nProvider';
+import { errorText, LocalizedError, msg, type LocalizedText, type MessageKey } from './i18n/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ArrowDownToLine, ArrowUpFromLine, Box, Check, ChevronDown, ChevronRight, CircleHelp, Expand,
-  Gauge, GitBranch, Layers3, Link2, LoaderCircle, Maximize, Minimize, MousePointer2, Network, Pause, Play, RotateCcw, Scan, Search, Server, SlidersHorizontal, X } from 'lucide-react';
+  Gauge, GitBranch, Languages, Layers3, Link2, LoaderCircle, Maximize, Minimize, MousePointer2, Network, Pause, Play, RotateCcw, Scan, Search, Server, SlidersHorizontal, X } from 'lucide-react';
 import ConfigPanel from './components/ConfigPanel';
-import Inspector from './components/Inspector';
+import Inspector, { type PathEndpoint, type PathInputs } from './components/Inspector';
 import { NetworkCanvas, type CanvasHandle } from './components/NetworkCanvas';
 import { DEFAULT_SPEC } from './model/defaults';
 import { calculate, findNode, nodeLabel, SpecError } from './model/engine';
@@ -19,14 +21,14 @@ interface Result {
   layout: LayoutResult | null; elapsedMs: number;
 }
 const STORAGE_KEY = 'closlab.project.v1';
-const LAYOUT_LABELS: Record<LayoutMode, string> = { layered: '3D 分层', planes: '平面展开', flat: '2D 分层', radial: '径向布局' };
-function initialProject(): SavedProject & { urlError?: string } {
+const LAYOUT_LABELS: Record<LayoutMode, MessageKey> = { layered: "3D layered", planes: "Expanded planes", flat: "2D layered", radial: "Radial" };
+function initialProject(): SavedProject & { urlError?: LocalizedText } {
   const defaults: SavedProject = { format: 'closlab', version: 1, spec: structuredClone(DEFAULT_SPEC), view: { ...DEFAULT_VIEW } };
   try {
     const shared = projectFromQuery(window.location.search);
     if (shared) return shared;
   } catch (error) {
-    return { ...defaults, urlError: '分享链接参数无效，已载入默认配置：' + (error instanceof Error ? error.message : String(error)) };
+    return { ...defaults, urlError: msg('Invalid share-link parameters; defaults loaded: {error}', { error: errorText(error) }) };
   }
   try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) return parseProject(saved); } catch { /* Recover safely from unavailable storage or incompatible projects. */ }
   return defaults;
@@ -37,6 +39,7 @@ function download(text: string, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export default function App() {
+  const { t, text, locale, setLocale } = useI18n();
   const [initial] = useState(initialProject);
   const [draft, setDraft] = useState<TopologySpec>(initial.spec);
   const [applied, setApplied] = useState<TopologySpec>(initial.spec);
@@ -44,10 +47,12 @@ export default function App() {
   const [result, setResult] = useState<Result | null>(null);
   const [layout, setLayout] = useState<LayoutResult | null>(null);
   const [busy, setBusy] = useState(true), [layoutBusy, setLayoutBusy] = useState(false);
-  const [message, setMessage] = useState(''), [renderError, setRenderError] = useState('');
+  const [message, setMessage] = useState<LocalizedText>(''), [renderError, setRenderError] = useState<LocalizedText>('');
   const [urlError, setUrlError] = useState(initial.urlError ?? ''), [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState<number | null>(null), [path, setPath] = useState<number[]>([]);
   const [allPaths, setAllPaths] = useState<PathSet | null>(null), [pathBusy, setPathBusy] = useState(false);
+  const [pathInputs, setPathInputs] = useState<PathInputs>({ source: 'E-0', target: 'E-1' });
+  const [pickingPathEndpoint, setPickingPathEndpoint] = useState<PathEndpoint | null>(null);
   const [filter, setFilter] = useState<Filter>({ ...EMPTY_FILTER });
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'topology' | 'capacity'>('topology');
@@ -62,7 +67,7 @@ export default function App() {
   const dirty = JSON.stringify(draft) !== JSON.stringify(applied);
   const errors = useMemo((): Diagnostic[] => {
     try { calculate(draft); return []; }
-    catch (error) { return error instanceof SpecError ? error.diagnostics : [{ field: 'spec', message: String(error) }]; }
+    catch (error) { return error instanceof SpecError ? error.diagnostics : [{ field: 'spec', message: errorText(error) }]; }
   }, [draft]);
 
   useEffect(() => {
@@ -70,12 +75,12 @@ export default function App() {
     let cancelled = false;
     setBusy(true); setResult(null); setLayout(null); setMessage(''); setRenderError('');
     setSelected(null); setPath([]); setFilter({ ...EMPTY_FILTER }); setRotating(false); setBenchmark(null);
-    setAllPaths(null); setPathBusy(false);
+    setAllPaths(null); setPathBusy(false); setPickingPathEndpoint(null);
     pathRequest.current++;
     worker.request<Result>('build', { spec: applied, layout: viewRef.current.layout }).then(next => {
       if (cancelled) return;
       setResult(next); setLayout(next.layout); setBusy(false);
-    }).catch(error => { if (!cancelled) { setMessage(error.message); setBusy(false); } });
+    }).catch(error => { if (!cancelled) { setMessage(errorText(error)); setBusy(false); } });
     return () => { cancelled = true; worker.dispose(); if (client.current === worker) client.current = null; };
   }, [applied]);
   useEffect(() => {
@@ -84,7 +89,7 @@ export default function App() {
     setLayoutBusy(true); setRotating(false);
     client.current.request<LayoutResult>('layout', { mode: view.layout }).then(next => {
       if (!cancelled) { setLayout(next); setLayoutBusy(false); }
-    }).catch(error => { if (!cancelled) { setMessage(error.message); setLayoutBusy(false); } });
+    }).catch(error => { if (!cancelled) { setMessage(errorText(error)); setLayoutBusy(false); } });
     return () => { cancelled = true; };
   }, [view.layout, result?.graph]);
   useEffect(() => {
@@ -105,28 +110,39 @@ export default function App() {
   }, [help]);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setFocused(false); setSelected(null); setPath([]); setAllPaths(null); setPathBusy(false); pathRequest.current++; }
+      if (event.key === 'Escape') { setFocused(false); setSelected(null); setPath([]); setAllPaths(null); setPathBusy(false); setPickingPathEndpoint(null); pathRequest.current++; }
     };
     window.addEventListener('keydown', handleKey); return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
   const updateView = (patch: Partial<ViewConfig>) => setView(v => ({ ...v, ...patch }));
-  const clearPaths = () => { setPath([]); setAllPaths(null); setPathBusy(false); pathRequest.current++; };
+  const clearPaths = () => { setPath([]); setAllPaths(null); setPathBusy(false); setPickingPathEndpoint(null); pathRequest.current++; };
+  const updatePathInput = (endpoint: PathEndpoint, value: string) => {
+    setPathInputs(inputs => ({ ...inputs, [endpoint]: value })); clearPaths();
+  };
+  const startPathPick = (endpoint: PathEndpoint | null) => { clearPaths(); setPickingPathEndpoint(endpoint); };
   const selectNode = (id: number | null, focus = false) => {
     setSelected(id); clearPaths();
     if (focus && id !== null) { setFilter({ ...EMPTY_FILTER }); canvas.current?.focus(id); }
   };
+  const pickCanvasNode = (id: number | null) => {
+    if (pickingPathEndpoint) {
+      if (id !== null && result?.graph) updatePathInput(pickingPathEndpoint, nodeLabel(result.graph, id));
+      return;
+    }
+    selectNode(id);
+  };
   const search = () => {
     if (!result?.graph) return;
     const id = findNode(result.graph, query);
-    if (id === null) { setMessage('未找到节点。使用 E-0、T0-0 或节点数字编号。'); return; }
+    if (id === null) { setMessage(msg("Node not found. Use E-0, T0-0, or a numeric node ID.")); return; }
     setMessage(''); selectNode(id, true);
   };
   const showPath = async (source: string, target: string, all = false) => {
     if (!result?.graph || !client.current) return;
     clearPaths();
     const a = findNode(result.graph, source), b = findNode(result.graph, target);
-    if (a === null || b === null) { setMessage('路径端点不存在，请检查源节点与目的节点编号。'); return; }
+    if (a === null || b === null) { setMessage(msg("Path endpoint not found. Check the source and destination node IDs.")); return; }
     const request = ++pathRequest.current;
     setPathBusy(true); setMessage('');
     try {
@@ -134,15 +150,15 @@ export default function App() {
         const paths = await client.current.request<PathSet>('allPaths', { source: a, target: b });
         if (request !== pathRequest.current) return;
         setAllPaths(paths.count > 0n ? paths : null);
-        setMessage(paths.count > 0n ? '' : '两个节点之间没有可用路径。');
+        setMessage(paths.count > 0n ? '' : msg("No path is available between these nodes."));
       } else {
         const nodes = await client.current.request<number[]>('path', { source: a, target: b });
         if (request !== pathRequest.current) return;
-        setPath(nodes); setMessage(nodes.length ? '' : '两个节点之间没有可用路径。');
+        setPath(nodes); setMessage(nodes.length ? '' : msg("No path is available between these nodes."));
       }
       setSelected(null); setFilter({ ...EMPTY_FILTER });
     } catch (error) {
-      if (request === pathRequest.current) setMessage(error instanceof Error ? error.message : '路径计算失败');
+      if (request === pathRequest.current) setMessage(errorText(error, "Path calculation failed"));
     } finally {
       if (request === pathRequest.current) setPathBusy(false);
     }
@@ -150,12 +166,12 @@ export default function App() {
   const importProject = async (file?: File) => {
     if (!file) return;
     try {
-      if (file.size > 65536) throw new Error('配置文件不能超过 64 KB');
+      if (file.size > 65536) throw new LocalizedError(msg("Configuration files must not exceed 64 KB"));
       const project = parseProject(await file.text()); calculate(project.spec);
       setDraft(project.spec); setApplied(structuredClone(project.spec)); setView(project.view);
       setUrlError('');
       setMessage('');
-    } catch (error) { setMessage(error instanceof Error ? error.message : '导入失败'); }
+    } catch (error) { setMessage(errorText(error, "Import failed")); }
     if (fileInput.current) fileInput.current.value = '';
   };
   const runBenchmark = async () => {
@@ -163,13 +179,13 @@ export default function App() {
     setBenchmarkBusy(true); setBenchmark(null); setMessage('');
     setSelected(null); clearPaths();
     try { setBenchmark(await canvas.current.benchmark()); }
-    catch (error) { setMessage(error instanceof Error ? error.message : '性能测试失败'); }
+    catch (error) { setMessage(errorText(error, "Benchmark failed")); }
     finally { setBenchmarkBusy(false); }
   };
   const copyShareLink = async () => {
     const url = new URL(window.location.href); url.search = projectToQuery(applied, view);
     try { await navigator.clipboard.writeText(url.href); setCopied(true); }
-    catch { setMessage('无法自动复制，请从地址栏复制当前网络链接。'); }
+    catch { setMessage(msg("Could not copy automatically. Copy the network link from the address bar.")); }
   };
   const summary = result?.summary;
   const currentSpec = result?.spec ?? applied;
@@ -180,162 +196,172 @@ export default function App() {
   const podColors = result?.graph ? usesPodColors(result.graph) : false;
   return <div className="app">
     <header className="topbar">
-      <a href="./" className="brand" aria-label="ClosLab 首页"><img src="/favicon.svg" alt="" /><strong>clos<span>lab</span></strong></a>
-      <div className="brand-divider" /><span className="app-subtitle">NETWORK DESIGN STUDIO</span>
+      <a href="./" className="brand" aria-label={t("ClosLab home")}><img src="/favicon.svg" alt="" /><strong>clos<span>lab</span></strong></a>
+      <div className="brand-divider" /><span className="app-subtitle">{t("NETWORK DESIGN STUDIO")}</span>
       <nav className="header-actions">
-        <span className="local-badge"><span className="status-dot" />本地工作空间</span>
-        <button className="quiet-button" aria-label="模型说明" onClick={() => setHelp(true)}><CircleHelp size={15} /><span>模型说明</span></button>
-        <button className="quiet-button" aria-label="导入" onClick={() => fileInput.current?.click()}><ArrowUpFromLine size={15} /><span>导入</span></button>
-        <button className="quiet-button" aria-label="复制分享链接" title="复制当前已生成网络的分享链接" onClick={() => void copyShareLink()}>
-          {copied ? <Check size={15} /> : <Link2 size={15} />}<span>{copied ? '已复制' : '分享'}</span></button>
-        <button className="secondary-button export-button" onClick={() => download(serializeProject(applied, view), 'closlab-network.json')}><ArrowDownToLine size={14} /><span>导出配置</span></button>
-        <input ref={fileInput} aria-label="导入配置文件" type="file" accept=".json,application/json" hidden onChange={e => void importProject(e.target.files?.[0])} />
+        <label className="language-switch"><Languages size={15} />
+          <select aria-label={t('Language')} value={locale} onChange={e => setLocale(e.target.value as 'en' | 'zh-CN')}>
+            <option value="en" lang="en">English</option><option value="zh-CN" lang="zh-CN">中文</option>
+          </select>
+        </label>
+        <span className="local-badge"><span className="status-dot" />{t("Local workspace")}</span>
+        <button className="quiet-button" aria-label={t("Model guide")} onClick={() => setHelp(true)}><CircleHelp size={15} /><span>{t("Model guide")}</span></button>
+        <button className="quiet-button" aria-label={t("Import")} onClick={() => fileInput.current?.click()}><ArrowUpFromLine size={15} /><span>{t("Import")}</span></button>
+        <button className="quiet-button" aria-label={t("Copy share link")} title={t("Copy a share link for the generated network")} onClick={() => void copyShareLink()}>
+          {copied ? <Check size={15} /> : <Link2 size={15} />}<span>{copied ? t("Copied") : t("Share")}</span></button>
+        <button aria-label={t("Export configuration")} className="secondary-button export-button" onClick={() => download(serializeProject(applied, view), 'closlab-network.json')}><ArrowDownToLine size={14} /><span>{t("Export configuration")}</span></button>
+        <input ref={fileInput} aria-label={t("Import configuration file")} type="file" accept=".json,application/json" hidden onChange={e => void importProject(e.target.files?.[0])} />
       </nav>
     </header>
     <div className="workspace-heading">
-      <div><div className="breadcrumb">工作空间<ChevronRight size={12} />网络设计</div>
-        <h1>Fabric 工作台 <span>PROTOTYPE</span></h1></div>
-      <p>从端口到网络，探索每一种连接。</p>
+      <div><div className="breadcrumb">{t("Workspace")}<ChevronRight size={12} />{t("Network design")}</div>
+        <h1>{t("Fabric workbench")} <span>{t("PROTOTYPE")}</span></h1></div>
+      <p>{t("From ports to fabrics, explore every connection.")}</p>
     </div>
     <main className="workbench-content">
       <ConfigPanel spec={draft} setSpec={setDraft} errors={errors} busy={busy} dirty={dirty}
         onApply={() => { if (!errors.length) { setUrlError(''); setApplied(structuredClone(draft)); setTab('topology'); } }}
         onReset={() => setDraft(structuredClone(DEFAULT_SPEC))} />
       <section className="results-section" aria-labelledby="results-heading">
-        <div className="results-heading"><div><span className="section-step">02</span><h2 id="results-heading">计算结果</h2><p>容量统计与网络可视化</p></div>
+        <div className="results-heading"><div><span className="section-step">02</span><h2 id="results-heading">{t("Results")}</h2><p>{t("Capacity and topology visualization")}</p></div>
           <span className={'results-state' + (dirty ? ' is-pending' : '')} role="status">
-            <span className={'status-dot' + (dirty ? ' pending' : '')} />{busy ? '正在生成网络…' : dirty ? '参数待应用 · 当前显示上次生成结果' : '已与输入同步'}</span>
+            <span className={'status-dot' + (dirty ? ' pending' : '')} />{busy ? t("Generating network…") : dirty ? t("Unapplied changes · Showing previous results") : t("Inputs and results are in sync")}</span>
         </div>
-        <section className="metrics" aria-label="网络统计">
-          <div className="metric"><div><Server size={15} /><span>终端数量</span></div><strong data-testid="endpoint-count">{summary ? formatCount(summary.endpoints) : '—'}<small>ENDPOINTS</small></strong>
-            <p>{summary ? '最大容量 ' + formatCount(summary.maxEndpoints) : '等待计算网络容量'}</p></div>
-          <div className="metric"><div><Layers3 size={15} /><span>交换机数量</span></div><strong data-testid="switch-count">{summary ? formatCount(summary.switchCount) : '—'}<small>SWITCHES</small></strong>
-            <p>{currentSpec.tiers.length} 个交换层 · {Math.max(1, colorGroupCount)} 个{naturalGroups ? '自动' : ''}平面</p></div>
-          <div className="metric"><div><GitBranch size={15} /><span>物理连接数量</span></div><strong data-testid="link-count">{summary ? formatCount(summary.totalLinks) : '—'}<small>LINKS</small></strong>
-            <p>包含终端接入与层间连接</p></div>
-          <div className="metric bandwidth-metric"><div><Activity size={15} /><span>终端总注入带宽</span></div><strong data-testid="bandwidth">{summary ? formatBandwidth(summary.injectionMbps) : '—'}</strong>
-            <p>单向带宽 · 每终端 {summary ? formatBandwidth(summary.endpointMbps) : '—'}</p></div>
+        <section className="metrics" aria-label={t("Network statistics")}>
+          <div className="metric"><div><Server size={15} /><span>{t("Endpoints")}</span></div><strong data-testid="endpoint-count">{summary ? formatCount(summary.endpoints) : '—'}<small>{t("ENDPOINTS")}</small></strong>
+            <p>{summary ? t('Maximum capacity {count}', { count: formatCount(summary.maxEndpoints) }) : t("Waiting for capacity calculation")}</p></div>
+          <div className="metric"><div><Layers3 size={15} /><span>{t("Switches")}</span></div><strong data-testid="switch-count">{summary ? formatCount(summary.switchCount) : '—'}<small>{t("SWITCHES")}</small></strong>
+            <p>{t(naturalGroups ? '{tiers} switch tiers · {planes} auto planes' : colorGroupCount === 1 ? '{tiers} switch tiers · {planes} plane' : '{tiers} switch tiers · {planes} planes', { tiers: currentSpec.tiers.length, planes: Math.max(1, colorGroupCount) })}</p></div>
+          <div className="metric"><div><GitBranch size={15} /><span>{t("Physical links")}</span></div><strong data-testid="link-count">{summary ? formatCount(summary.totalLinks) : '—'}<small>{t("LINKS")}</small></strong>
+            <p>{t("Includes endpoint access and inter-tier links")}</p></div>
+          <div className="metric bandwidth-metric"><div><Activity size={15} /><span>{t("Endpoint injection bandwidth")}</span></div><strong data-testid="bandwidth">{summary ? formatBandwidth(summary.injectionMbps) : '—'}</strong>
+            <p>{t('One-way · {bandwidth} per endpoint', { bandwidth: summary ? formatBandwidth(summary.endpointMbps) : '—' })}</p></div>
         </section>
         <div className="workbench">
           <section className="workspace-main">
             <div className="workspace-tabs"><div>
-              <button className={tab === 'topology' ? 'active' : ''} onClick={() => setTab('topology')}><Network size={14} />拓扑视图</button>
-              <button className={tab === 'capacity' ? 'active' : ''} onClick={() => setTab('capacity')}><SlidersHorizontal size={14} />容量明细</button>
-            </div><span className="view-caption">{busy ? '构建中' : dirty ? '有未应用的修改' : 'FOLDED CLOS'}</span></div>
+              <button className={tab === 'topology' ? 'active' : ''} onClick={() => setTab('topology')}><Network size={14} />{t("Topology")}</button>
+              <button className={tab === 'capacity' ? 'active' : ''} onClick={() => setTab('capacity')}><SlidersHorizontal size={14} />{t("Capacity details")}</button>
+            </div><span className="view-caption">{busy ? t("Building") : dirty ? t("Unapplied changes") : t('FOLDED CLOS')}</span></div>
             <div className={'canvas-shell' + (focused ? ' is-focused' : '')} style={{ display: tab === 'topology' ? undefined : 'none' }}>
               <div className="canvas-toolbar">
-                <div className="layout-select"><Box size={14} /><select aria-label="拓扑布局" value={view.layout} onChange={e => updateView({ layout: e.target.value as LayoutMode })}>
-                  {Object.entries(LAYOUT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                <div className="layout-select"><Box size={14} /><select aria-label={t("Topology layout")} value={view.layout} onChange={e => updateView({ layout: e.target.value as LayoutMode })}>
+                  {Object.entries(LAYOUT_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
                 </select><ChevronDown size={12} /></div>
                 <div className="toolbar-divider" />
-                <div className="segmented line-select"><button className={view.lines === 'straight' ? 'active' : ''} onClick={() => updateView({ lines: 'straight' })}>直线</button>
-                  <button className={view.lines === 'elbow' ? 'active' : ''} onClick={() => updateView({ lines: 'elbow' })}>折线</button></div>
+                <div className="segmented line-select"><button className={view.lines === 'straight' ? 'active' : ''} onClick={() => updateView({ lines: 'straight' })}>{t("Straight")}</button>
+                  <button className={view.lines === 'elbow' ? 'active' : ''} onClick={() => updateView({ lines: 'elbow' })}>{t("Orthogonal")}</button></div>
                 <div className="toolbar-spacer" />
                 <form className="node-search" onSubmit={e => { e.preventDefault(); search(); }}><Search size={13} />
-                  <input aria-label="搜索节点" value={query} onChange={e => setQuery(e.target.value)} placeholder="查找节点 ID" />
+                  <input aria-label={t("Search nodes")} value={query} onChange={e => setQuery(e.target.value)} placeholder={t("Find node ID")} />
                   <kbd>↵</kbd></form>
-                <button className="reset-view-button" aria-label="Reset view" title="恢复初始视角" onClick={() => canvas.current?.reset()}>
-                  <RotateCcw size={13} /><span>Reset view</span></button>
-                <button className="icon-button" title={focused ? '退出专注模式' : '专注模式'} aria-label={focused ? '退出专注模式' : '专注模式'} onClick={() => setFocused(v => !v)}>
+                <button className="reset-view-button" aria-label={t('Reset view')} title={t("Restore initial view")} onClick={() => canvas.current?.reset()}>
+                  <RotateCcw size={13} /><span>{t("Reset view")}</span></button>
+                <button className="icon-button" title={focused ? t("Exit focus mode") : t("Focus mode")} aria-label={focused ? t("Exit focus mode") : t("Focus mode")} onClick={() => setFocused(v => !v)}>
                   {focused ? <Minimize size={15} /> : <Expand size={15} />}</button>
               </div>
-              <div className="canvas-stage">
+              <div className={'canvas-stage' + (pickingPathEndpoint ? ' is-picking-node' : '')}>
                 <NetworkCanvas ref={canvas} graph={result?.graph ?? null} layout={layout} view={view} filter={filter}
-                  selected={selected} path={path} allPaths={allPaths} onPick={id => selectNode(id)} onStats={setStats} onError={setRenderError} />
-                <div className="canvas-top-label"><span className="status-dot" /><span>{hasFilter || !view.showEndpoints ? '筛选视图' : '全量拓扑'}</span>
-                  <span className="canvas-label-divider" />{currentSpec.tiers.length}-TIER · {Math.max(1, colorGroupCount)} PLANE{colorGroupCount > 1 ? 'S' : ''}{naturalGroups ? ' · 自动识别' : ''}
-                  {(result?.graph?.edgeCount ?? 0) > 100000 && <span>· 深度遮挡</span>}</div>
-                {view.layout === 'flat' && <div className="pan-hint">滚轮缩放 · 右键拖动平移</div>}
+                  selected={selected} path={path} allPaths={allPaths} onPick={pickCanvasNode} onStats={setStats} onError={setRenderError} />
+                <div className="canvas-top-label"><span className="status-dot" /><span>{hasFilter || !view.showEndpoints ? t("Filtered view") : t("Full topology")}</span>
+                  <span className="canvas-label-divider" />{t(colorGroupCount === 1 ? '{tiers} tiers · {planes} plane' : '{tiers} tiers · {planes} planes', { tiers: currentSpec.tiers.length, planes: Math.max(1, colorGroupCount) })}{naturalGroups ? t(' · Auto-detected') : ''}
+                  {(result?.graph?.edgeCount ?? 0) > 100000 && <span>{t('· Depth occlusion')}</span>}</div>
+                {view.layout === 'flat' && <div className="pan-hint">{t("Scroll to zoom · Right-drag to pan")}</div>}
                 <div className="canvas-legend">{!groupedColors
-                  ? ['终端', ...currentSpec.tiers.map((_, i) => 'T' + i)].map((label, i) =>
+                  ? [t("Endpoints"), ...currentSpec.tiers.map((_, i) => 'T' + i)].map((label, i) =>
                     <span key={label}><i style={{ background: TIER_COLORS[i] }} />{label}</span>)
-                  : <>{(currentSpec.planes > 1 || currentSpec.tiers.length > 2) && <span><i style={{ background: SHARED_COLOR }} />共享</span>}
+                  : <>{(currentSpec.planes > 1 || currentSpec.tiers.length > 2) && <span><i style={{ background: SHARED_COLOR }} />{t("Shared")}</span>}
                     {Array.from({ length: Math.min(colorGroupCount, 8) }, (_, i) =>
                       <span key={i}><i style={{ background: groupColor(i) }} />P{i}</span>)}
-                    <span>{naturalGroups ? `${colorGroupCount} 个自动平面` : `共 ${colorGroupCount} 平面`}</span>
-                    {podColors && <span>Fabric 按 Pod · Spine / 连线按平面</span>}</>}</div>
+                    <span>{naturalGroups ? t('{count} auto planes', { count: colorGroupCount }) : t(colorGroupCount === 1 ? '{count} plane' : '{count} planes', { count: colorGroupCount })}</span>
+                    {podColors && <span>{t("Fabric by Pod · Spines / links by plane")}</span>}</>}</div>
                 <div className="canvas-settings">
-                  <div className="color-mode" data-testid="color-mode">{podColors ? 'Pod / 平面颜色 · 自动' : groupedColors ? '平面颜色 · 自动' : '层级颜色 · 自动'}</div>
-                  <label>显示终端<input aria-label="显示终端" type="checkbox" checked={view.showEndpoints}
+                  <div className="color-mode" data-testid="color-mode">{podColors ? t("Pod / plane colors · Auto") : groupedColors ? t("Plane colors · Auto") : t("Tier colors · Auto")}</div>
+                  <label>{t("Show endpoints")}<input aria-label={t("Show endpoints")} type="checkbox" checked={view.showEndpoints}
                     onChange={e => { updateView({ showEndpoints: e.target.checked }); selectNode(null); }} /></label>
-                  <label className="opacity-control">线条强度<input aria-label="线条强度" type="range" min="0.01" max="0.8" step="0.01"
+                  <label className="opacity-control">{t("Link intensity")}<input aria-label={t("Link intensity")} type="range" min="0.01" max="0.8" step="0.01"
                     value={view.opacity} onChange={e => updateView({ opacity: Number(e.target.value) })} /></label>
                 </div>
                 <div className="view-controls">
-                  <button className="icon-button" aria-label="复位视角" title="复位视角" onClick={() => canvas.current?.reset()}><Maximize size={16} /></button>
-                  <button className="icon-button" aria-label="查看全图" title="查看全图" onClick={() => canvas.current?.fit()}><Scan size={16} /></button>
-                  <button className={'icon-button' + (rotating ? ' active' : '')} aria-label={rotating ? '停止旋转' : '自动旋转'} title="自动旋转"
+                  <button className="icon-button" aria-label={t("Reset camera")} title={t("Reset camera")} onClick={() => canvas.current?.reset()}><Maximize size={16} /></button>
+                  <button className="icon-button" aria-label={t("Fit all")} title={t("Fit all")} onClick={() => canvas.current?.fit()}><Scan size={16} /></button>
+                  <button className={'icon-button' + (rotating ? ' active' : '')} aria-label={rotating ? t("Stop rotation") : t("Auto rotate")} title={t("Auto rotate")}
                     disabled={view.layout === 'flat' || view.layout === 'radial'} onClick={() => setRotating(canvas.current?.toggleRotate() ?? false)}>
                     {rotating ? <Pause size={15} /> : <Play size={15} />}</button>
-                  <button className={'icon-button' + (benchmarkBusy ? ' active' : '')} aria-label="运行30秒性能测试" title="运行 30 秒全量性能测试"
+                  <button className={'icon-button' + (benchmarkBusy ? ' active' : '')} aria-label={t("Run 30-second benchmark")} title={t("Run a 30-second full-topology benchmark")}
                     disabled={benchmarkBusy || !result?.graph || busy || layoutBusy} onClick={() => void runBenchmark()}>
                     {benchmarkBusy ? <LoaderCircle className="spin" size={15} /> : <Gauge size={16} />}</button>
                 </div>
                 <div className="orientation"><span>Y</span><i /><b>X</b><em>Z</em></div>
-                {selected !== null && result?.graph && <div className="selection-chip"><MousePointer2 size={12} />{nodeLabel(result.graph, selected)}
-                  <span>· {result.graph.adjacencyOffsets[selected + 1] - result.graph.adjacencyOffsets[selected]} 条直连链路</span>
-                  <button aria-label="清除选择" onClick={() => selectNode(null)}><X size={12} /></button></div>}
+                {pickingPathEndpoint && <div className="selection-chip path-pick-prompt" data-testid="path-pick-prompt" role="status">
+                  <MousePointer2 size={12} />{t(pickingPathEndpoint === 'source' ? 'Click a node to set the source · Esc to cancel' : 'Click a node to set the destination · Esc to cancel')}
+                  <button aria-label={t('Cancel node picking')} onClick={() => setPickingPathEndpoint(null)}><X size={12} /></button>
+                </div>}
+                {!pickingPathEndpoint && selected !== null && result?.graph && <div className="selection-chip"><MousePointer2 size={12} />{nodeLabel(result.graph, selected)}
+                  <span>{t('· Direct links: {count}', { count: result.graph.adjacencyOffsets[selected + 1] - result.graph.adjacencyOffsets[selected] })}</span>
+                  <button aria-label={t("Clear selection")} onClick={() => selectNode(null)}><X size={12} /></button></div>}
                 {(path.length > 0 || allPaths) && <div className="selection-chip"><GitBranch size={12} />
-                  {allPaths ? `全部最短路径 · ${formatCount(allPaths.count)} 条 · 每条 ${allPaths.distance} 跳` : `已显示路径 · ${path.length - 1} 条链路`}
-                  <button aria-label="清除路径" onClick={clearPaths}><X size={12} /></button></div>}
-                {(busy || layoutBusy) && <div className="canvas-progress"><LoaderCircle className="spin" size={16} />{busy ? '正在构建网络' : '正在计算布局'}<small>保持每一个节点与每一条连接</small></div>}
-                {!busy && summary && !summary.canRender && <div className="canvas-empty"><Layers3 size={32} /><h2>容量已计算，规模超出渲染预算</h2>
-                  <p>{formatCount(summary.totalNodes)} 个节点 · {formatCount(summary.totalLinks)} 条链路</p><span>切换到目标规划，减少终端数量后生成全量网络。</span></div>}
-                {renderError && <div className="canvas-empty error-surface"><h2>画布暂不可用</h2><p>{renderError}</p><span>容量统计仍可使用。</span></div>}
-                {benchmarkBusy && <div className="benchmark-running"><span className="status-dot" />正在连续旋转并测量 30 秒…</div>}
+                  {allPaths ? t('All shortest paths: {count} · Hops per path: {hops}', { count: formatCount(allPaths.count), hops: allPaths.distance }) : t('Path shown · Links: {count}', { count: path.length - 1 })}
+                  <button aria-label={t("Clear path")} onClick={clearPaths}><X size={12} /></button></div>}
+                {(busy || layoutBusy) && <div className="canvas-progress"><LoaderCircle className="spin" size={16} />{busy ? t("Building network") : t("Calculating layout")}<small>{t("Preserving every node and connection")}</small></div>}
+                {!busy && summary && !summary.canRender && <div className="canvas-empty"><Layers3 size={32} /><h2>{t("Capacity calculated; rendering limit exceeded")}</h2>
+                  <p>{t('{nodes} nodes · {links} links', { nodes: formatCount(summary.totalNodes), links: formatCount(summary.totalLinks) })}</p><span>{t("Use Target planning with fewer endpoints to render the full network.")}</span></div>}
+                {renderError && <div className="canvas-empty error-surface"><h2>{t("Canvas unavailable")}</h2><p>{text(renderError)}</p><span>{t("Capacity statistics remain available.")}</span></div>}
+                {benchmarkBusy && <div className="benchmark-running"><span className="status-dot" />{t("Rotating and measuring for 30 seconds…")}</div>}
                 {benchmark && <div className="benchmark-result" data-testid="benchmark-result">
-                  <div><strong>全量渲染测试</strong><button className="icon-button" aria-label="关闭性能结果" onClick={() => setBenchmark(null)}><X size={12} /></button></div>
-                  <p><b>{benchmark.medianFps.toFixed(1)}</b> 中位 FPS <span>P95 {benchmark.p95FrameMs.toFixed(1)} ms</span></p>
-                  <dl><dt>实际节点</dt><dd data-testid="benchmark-nodes">{formatCount(benchmark.nodes)}</dd>
-                    <dt>实际链路</dt><dd data-testid="benchmark-links">{formatCount(benchmark.links)}</dd>
-                    <dt>提交线段</dt><dd data-testid="benchmark-segments">{formatCount(benchmark.submittedSegments)}</dd>
-                    <dt>画布 / DPR</dt><dd>{benchmark.width} × {benchmark.height} / {benchmark.dpr}</dd></dl>
-                  <button className="text-button" onClick={() => download(JSON.stringify({ ...benchmark, userAgent: navigator.userAgent, spec: applied, view, generatedAt: new Date().toISOString() }, null, 2), 'closlab-benchmark.json')}>下载性能报告 <ArrowDownToLine size={12} /></button>
+                  <div><strong>{t("Full-topology benchmark")}</strong><button className="icon-button" aria-label={t("Close benchmark results")} onClick={() => setBenchmark(null)}><X size={12} /></button></div>
+                  <p><b>{benchmark.medianFps.toFixed(1)}</b> {t("Median FPS")} <span>P95 {benchmark.p95FrameMs.toFixed(1)} ms</span></p>
+                  <dl><dt>{t("Rendered nodes")}</dt><dd data-testid="benchmark-nodes">{formatCount(benchmark.nodes)}</dd>
+                    <dt>{t("Rendered links")}</dt><dd data-testid="benchmark-links">{formatCount(benchmark.links)}</dd>
+                    <dt>{t("Submitted segments")}</dt><dd data-testid="benchmark-segments">{formatCount(benchmark.submittedSegments)}</dd>
+                    <dt>{t("Canvas / DPR")}</dt><dd>{benchmark.width} × {benchmark.height} / {benchmark.dpr}</dd></dl>
+                  <button className="text-button" onClick={() => download(JSON.stringify({ ...benchmark, userAgent: navigator.userAgent, spec: applied, view, generatedAt: new Date().toISOString() }, null, 2), 'closlab-benchmark.json')}>{t("Download benchmark report")} <ArrowDownToLine size={12} /></button>
                 </div>}
               </div>
               <div className="canvas-status" data-testid="render-status" data-nodes={stats.visibleNodes} data-links={stats.visibleEdges}
                 data-segments={stats.submittedSegments} data-draw-calls={stats.drawCalls}
                 data-ready={!busy && !layoutBusy && !!result?.graph && stats.visibleNodes > 0}>
-                <div><span className="status-dot" /><span>{formatCount(stats.visibleNodes)} 节点</span><i>·</i><span>{formatCount(stats.visibleEdges)} 链路</span>
-                  {hasFilter && <button className="text-button" onClick={() => setFilter({ ...EMPTY_FILTER })}>清除筛选</button>}</div>
-                <div><span>{stats.fps > 0 ? stats.fps + ' FPS' : '按需渲染'}</span><i>·</i><span>{result ? result.elapsedMs.toFixed(0) + ' ms 构建' : '—'}</span></div>
+                <div><span className="status-dot" /><span>{t('{count} nodes', { count: formatCount(stats.visibleNodes) })}</span><i>·</i><span>{t('{count} links', { count: formatCount(stats.visibleEdges) })}</span>
+                  {hasFilter && <button className="text-button" onClick={() => setFilter({ ...EMPTY_FILTER })}>{t("Clear filters")}</button>}</div>
+                <div><span>{stats.fps > 0 ? stats.fps + ' FPS' : t("On-demand rendering")}</span><i>·</i><span>{result ? t('{time} ms build', { time: result.elapsedMs.toFixed(0) }) : '—'}</span></div>
               </div>
             </div>
             {tab === 'capacity' && summary && <div className="capacity-view">
-              <div className="capacity-title"><span className="eyebrow">CAPACITY BREAKDOWN</span><h2>每一层，都有据可查。</h2><p>当前已生成配置的设备数量、端口分配与单向容量。</p></div>
-              <div className="table-scroll"><table><thead><tr><th>层级</th><th>交换机</th><th>有效端口 / 台</th><th>下行 / 上行</th><th>预留 / 未分配</th><th>芯片带宽 / 台</th></tr></thead>
+              <div className="capacity-title"><span className="eyebrow">{t("CAPACITY BREAKDOWN")}</span><h2>{t("Every tier, accounted for.")}</h2><p>{t("Device counts, port allocation, and one-way capacity for the generated network.")}</p></div>
+              <div className="table-scroll"><table><thead><tr><th>{t("Tier")}</th><th>{t("Switches")}</th><th>{t("Effective ports / switch")}</th><th>{t("Down / Up")}</th><th>{t("Reserved / Unassigned")}</th><th>{t("ASIC bandwidth / switch")}</th></tr></thead>
                 <tbody>{currentSpec.tiers.map((p, i) => <tr key={i}><td><i className="table-dot" style={{ background: TIER_COLORS[i + 1] }} />T{i}</td>
                   <td>{formatCount(summary.switches[i])}</td><td>{p.ports * p.breakout}</td><td>{p.down} / {p.up}</td><td>{p.reserved} / {p.ports * p.breakout - p.down - p.up - p.reserved}</td><td>{p.chipTbps} Tbps</td></tr>)}</tbody></table></div>
-              <h3>层间连接</h3><div className="table-scroll"><table><thead><tr><th>连接边界</th><th>物理连接</th><th>单向链路容量之和</th><th>配置下行 : 上行</th></tr></thead>
-                <tbody>{summary.links.map((count, i) => <tr key={i}><td>{i === 0 ? '终端 → T0' : 'T' + (i - 1) + ' → T' + i}</td>
+              <h3>{t("Inter-tier connections")}</h3><div className="table-scroll"><table><thead><tr><th>{t("Boundary")}</th><th>{t("Physical links")}</th><th>{t("Aggregate one-way capacity")}</th><th>{t("Configured down : up")}</th></tr></thead>
+                <tbody>{summary.links.map((count, i) => <tr key={i}><td>{i === 0 ? t("Endpoints → T0") : 'T' + (i - 1) + ' → T' + i}</td>
                   <td>{formatCount(count)}</td><td>{formatBandwidth(summary.boundaryMbps[i])}</td><td>{i === 0 ? '—' : (currentSpec.tiers[i - 1].down / currentSpec.tiers[i - 1].up).toFixed(2) + ' : 1'}</td></tr>)}</tbody></table></div>
-              <div className="capacity-note"><CircleHelp size={16} /><p>层间容量是该边界全部单向链路容量之和。总注入带宽、层间容量与二分带宽采用不同口径；本工具不推断任意工作负载的吞吐。目标规划保留启用组的全部上行路径，末组允许未满配。</p></div>
+              <div className="capacity-note"><CircleHelp size={16} /><p>{t("Inter-tier capacity sums every one-way link at a boundary. Injection, inter-tier, and bisection bandwidth measure different things; this tool does not predict workload throughput. Target planning preserves all uplink paths of active groups and allows a partially filled final group.")}</p></div>
             </div>}
           </section>
           <Inspector spec={currentSpec} summary={summary ?? null} graph={result?.graph ?? null} colorBy={view.colorBy} selected={selected} onSelect={selectNode}
             filter={filter} setFilter={setFilter} path={path} allPaths={allPaths} pathBusy={pathBusy}
-            onPath={(a, b, all) => void showPath(a, b, all)} onClearPath={clearPaths} />
+            onPath={(a, b, all) => void showPath(a, b, all)} pathInputs={pathInputs} onPathInputChange={updatePathInput}
+            pickingPathEndpoint={pickingPathEndpoint} onPickPathEndpoint={startPathPick} />
         </div>
       </section>
     </main>
-    <footer className="app-footer"><span><Check size={11} />参数驱动 · 本地计算 · 全量连接</span><span>ClosLab <b>v0.1</b><span className="footer-separator">/</span> BUILD YOUR FABRIC</span></footer>
-    {(message || urlError) && <div className="toast" role="alert"><CircleHelp size={16} /><span>{message || urlError}</span><button aria-label="关闭提示" onClick={() => { setMessage(''); setUrlError(''); }}><X size={14} /></button></div>}
+    <footer className="app-footer"><span><Check size={11} />{t("Parameter-driven · Local computation · Every connection")}</span><span>ClosLab <b>v0.1</b><span className="footer-separator">/</span> {t('BUILD YOUR FABRIC')}</span></footer>
+    {(message || urlError) && <div className="toast" role="alert"><CircleHelp size={16} /><span>{text(message || urlError)}</span><button aria-label={t("Dismiss message")} onClick={() => { setMessage(''); setUrlError(''); }}><X size={14} /></button></div>}
     <dialog ref={dialog} className="help-dialog" onClose={() => setHelp(false)}>
-      <div className="dialog-heading"><div><span className="eyebrow">THE MODEL</span><h2>理解你的 Clos 网络</h2></div><button className="icon-button" aria-label="关闭模型说明" onClick={() => setHelp(false)}><X size={18} /></button></div>
+      <div className="dialog-heading"><div><span className="eyebrow">{t("THE MODEL")}</span><h2>{t("Understand your Clos network")}</h2></div><button className="icon-button" aria-label={t("Close model guide")} onClick={() => setHelp(false)}><X size={18} /></button></div>
       <div className="dialog-content">
-        <h3>规则化、可验证的连接</h3><p>每层配置下行 d 与上行 u。生成器以混合进制递归分组，每个下层交换机连接到组内不同的上层交换机，所有上行路径保留。Tier 只计算交换机层数。</p>
+        <h3>{t("Regular, verifiable connections")}</h3><p>{t("Each tier defines downlinks d and uplinks u. The generator groups switches recursively using mixed-radix rules, connects each lower switch to distinct upper switches in its group, and preserves every uplink path. Tiers count switch layers only.")}</p>
         <div className="formula">N<sub>max</sub> = d₀ × d₁ × … × d<sub>t−1</sub></div>
-        <p>目标规划从低编号接入组开始填充；末组可留空槽位。每一层的分组数向上取整，路径选择数由下层上行端口的乘积确定。此策略给出固定布线规则下的可行配置，不做全局最少设备优化。</p>
-        <h3>两种分平面边界</h3><p><b>终端接入：</b>每个平面复制一份完整交换 Fabric，终端共享且分别连接各平面。单终端总带宽等于单链路速率乘以平面数量。</p>
-        <p><b>交换层上方：</b>按边界上行选择维度均分为独立平面，要求上行端口数能被平面数整除。下层设备共享，上层连接不会跨平面；端口配置不变时，仅改变分组不会增加设备。</p>
-        <h3>硬件与带宽</h3><p>有效端口数 = 物理端口数 × Breakout。修改芯片带宽、物理端口数或 Breakout 会联动逻辑端口速率；逻辑速率也可手动设置。芯片带宽采用所有单向端口容量之和。首版同一交换机所有已用逻辑端口速率相同，相邻层速率必须一致。</p>
-        <p>Breakout 后每条独立点到点连接计一条链路，不进一步推算光模块、光纤芯数或扇出线缆组件数量。</p>
-        <h3>全量可视化</h3><p>支持 25 万总节点、500 万条链路以内的全量展开。所有终端和链路都提交到 GPU；远处重叠不会改变数量。仅用户主动筛选会减少显示对象，画布底部始终显示当前绘制数量。超出预算仍可查看精确容量统计。</p>
-        <p>超过 10 万条链路时，连线使用标准深度遮挡，并以颜色强度代替透明叠加，减少重复绘制的开销。节点在独立深度阶段绘制，保持可见与可选；链路仍全量提交，没有抽样。</p>
-        <p>3D 分层、平面展开、2D 分层与径向布局共享同一张图。节点 ID 为 E-0、T0-0 等；点击节点查看邻接关系，或输入 ID 搜索定位。路径探索支持查看一条最短路径，或显示全部等长最短路径（ECMP）；共享链路合并高亮，结果显示准确的路径总数。</p>
-        <h3>参考与边界</h3><p>首版不模拟拥塞控制、发包或论文性能。F16 和 MRC 只作为通用规则的覆盖验证，未针对案例编写专用生成器。</p>
+        <p>{t("Target planning fills access groups in ID order and allows empty slots in the final group. Group counts round up at each tier; route choices follow the product of lower-tier uplink counts. This is a feasible configuration under fixed wiring rules, without global optimization for the fewest devices.")}</p>
+        <h3>{t("Two plane split boundaries")}</h3><p><b>{t("At endpoint access: ")}</b>{t("Each plane gets a complete switching fabric. Shared endpoints connect to every plane, so bandwidth per endpoint equals the link speed multiplied by the plane count.")}</p>
+        <p><b>{t("Above a switch tier: ")}</b>{t("Uplink choices at the boundary split evenly into independent planes. The uplink count must be divisible by the plane count. Lower devices are shared; upper links stay within their plane. Changing the grouping alone does not add devices when port allocation is unchanged.")}</p>
+        <h3>{t("Hardware and bandwidth")}</h3><p>{t("Effective ports = physical ports × breakout. Changing ASIC bandwidth, physical ports, or breakout updates logical port speed; it can also be set manually. ASIC bandwidth sums all one-way port capacities. All used logical ports on a switch share one speed, which must match across adjacent tiers.")}</p>
+        <p>{t("Each independent point-to-point breakout connection counts as one link. The tool does not infer transceiver, fiber strand, or breakout cable assembly counts.")}</p>
+        <h3>{t("Full-topology visualization")}</h3><p>{t("Expand up to 250,000 total nodes and 5,000,000 links. All endpoints and links are submitted to the GPU; distant overlap does not change counts. Only explicit filters reduce the displayed objects. The canvas footer shows current rendered counts, and exact capacity statistics remain available beyond the rendering limit.")}</p>
+        <p>{t("Above 100,000 links, standard depth occlusion and color intensity replace transparency blending to reduce overdraw. Nodes render in a separate depth pass to remain visible and selectable. Every link is still submitted, without sampling.")}</p>
+        <p>{t("3D layered, expanded planes, 2D layered, and radial layouts share one graph. Node IDs include E-0 and T0-0. Click a node to inspect its neighbors or search by ID. Explore one shortest path or all equal-cost shortest paths (ECMP), with shared links highlighted once and an exact total path count.")}</p>
+        <h3>{t("References and scope")}</h3><p>{t("This version does not simulate congestion control, packet transmission, or paper performance results. F16 and MRC validate the general rules; neither uses a dedicated scenario generator.")}</p>
         <div className="reference-links"><a href="https://engineering.fb.com/2019/03/14/data-center-engineering/f16-minipack/" target="_blank" rel="noreferrer">Meta F16 / Minipack ↗</a>
-          <a href="https://cdn.openai.com/pdf/resilient-ai-supercomputer-networking-using-mrc-and-srv6.pdf" target="_blank" rel="noreferrer">MRC & SRv6 论文 ↗</a></div>
+          <a href="https://cdn.openai.com/pdf/resilient-ai-supercomputer-networking-using-mrc-and-srv6.pdf" target="_blank" rel="noreferrer">{t("MRC & SRv6 paper ↗")}</a></div>
       </div>
     </dialog>
   </div>;

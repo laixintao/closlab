@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n/I18nProvider';
+import { errorText, LocalizedError, msg, type LocalizedText } from '../i18n/core';
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { NetworkScene } from '../render/NetworkScene';
 import type { BenchmarkResult, Filter, FrameStats, LayoutResult, PathSet, TopologyBuffers, ViewConfig } from '../model/types';
@@ -12,8 +14,9 @@ export interface CanvasHandle {
 export const NetworkCanvas = forwardRef<CanvasHandle, {
   graph: TopologyBuffers | null; layout: LayoutResult | null; view: ViewConfig;
   filter: Filter; selected: number | null; path: number[]; allPaths: PathSet | null;
-  onPick: (id: number | null) => void; onStats: (stats: FrameStats) => void; onError: (message: string) => void;
+  onPick: (id: number | null) => void; onStats: (stats: FrameStats) => void; onError: (message: LocalizedText) => void;
 }>(function NetworkCanvas(props, ref) {
+  const { t } = useI18n();
   const host = useRef<HTMLDivElement>(null), scene = useRef<NetworkScene | null>(null);
   const callbacks = useRef(props); callbacks.current = props;
   const installedGraph = useRef<TopologyBuffers | null>(null);
@@ -23,10 +26,13 @@ export const NetworkCanvas = forwardRef<CanvasHandle, {
         stats => callbacks.current.onStats(stats), message => callbacks.current.onError(message));
       scene.current = renderer;
     } catch (error) {
-      callbacks.current.onError('无法启动 WebGL2 画布：' + (error instanceof Error ? error.message : '请启用硬件加速'));
+      callbacks.current.onError(msg('Could not start the WebGL2 canvas: {error}', { error: errorText(error, 'Enable hardware acceleration') }));
     }
     return () => { scene.current?.dispose(); scene.current = null; installedGraph.current = null; };
   }, []);
+  useEffect(() => {
+    host.current?.querySelector('canvas')?.setAttribute('aria-label', t('Full Clos topology canvas'));
+  }, [t]);
   useEffect(() => {
     if (!props.graph || !props.layout) { scene.current?.clear(); installedGraph.current = null; return; }
     if (installedGraph.current !== props.graph) {
@@ -41,7 +47,7 @@ export const NetworkCanvas = forwardRef<CanvasHandle, {
     fit: () => scene.current?.reset(true),
     focus: id => scene.current?.focusNode(id),
     toggleRotate: () => scene.current?.toggleRotate() ?? false,
-    benchmark: () => scene.current?.benchmark() ?? Promise.reject(new Error('画布尚未就绪')),
+    benchmark: () => scene.current?.benchmark() ?? Promise.reject(new LocalizedError(msg("Canvas is not ready"))),
   }), []);
   return <div className="webgl-host" ref={host} data-testid="network-canvas" />;
 });

@@ -1,3 +1,4 @@
+import { LocalizedError, msg, type LocalizedText } from '../i18n/core';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -90,7 +91,7 @@ export class NetworkScene {
   private statsStart = performance.now(); private renderedFrames = 0;
   private onPick: (id: number | null) => void;
   private onStats: (stats: FrameStats) => void;
-  private onError: (message: string) => void;
+  private onError: (message: LocalizedText) => void;
   private pointerDown: [number, number] = [0, 0];
   private benchmarkState: {
     start: number; previous: number; duration: number; samples: number[];
@@ -98,13 +99,12 @@ export class NetworkScene {
   } | null = null;
 
   constructor(private host: HTMLDivElement, onPick: (id: number | null) => void,
-    onStats: (stats: FrameStats) => void, onError: (message: string) => void) {
+    onStats: (stats: FrameStats) => void, onError: (message: LocalizedText) => void) {
     this.onPick = onPick; this.onStats = onStats; this.onError = onError;
     this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.setClearColor(0x000000, 0);
-    this.renderer.domElement.setAttribute('aria-label', 'Clos 网络全量拓扑画布');
     this.renderer.domElement.setAttribute('role', 'img');
     this.host.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100000);
@@ -127,8 +127,8 @@ export class NetworkScene {
   }
   private handleContextLost = (event: Event) => {
     event.preventDefault();
-    this.cancelBenchmark('GPU 上下文丢失');
-    this.onError('GPU 上下文丢失，请刷新页面恢复画布；已应用配置会自动恢复。');
+    this.cancelBenchmark(msg("GPU context lost"));
+    this.onError(msg("GPU context lost. Reload to restore the canvas; your applied configuration will be restored."));
   };
   private resize = () => {
     const oldWidth = this.width, oldHeight = this.height;
@@ -140,7 +140,7 @@ export class NetworkScene {
     this.camera.updateProjectionMatrix(); this.dirty = true;
     if (this.graph && this.width > 1 && this.height > 1 &&
         (oldWidth !== this.width || oldHeight !== this.height)) {
-      this.cancelBenchmark('画布尺寸已变化');
+      this.cancelBenchmark(msg("Canvas size changed"));
       this.reset();
     }
   };
@@ -157,7 +157,7 @@ export class NetworkScene {
   }
   private remember<T extends { dispose: () => void }>(resource: T): T { this.resources.push(resource); return resource; }
   clear() {
-    this.cancelBenchmark('网络已切换');
+    this.cancelBenchmark(msg("Network changed"));
     this.clearGuides();
     this.clearHighlights(); this.scene.clear();
     for (const resource of this.resources) resource.dispose();
@@ -231,7 +231,7 @@ export class NetworkScene {
   }
   setLayout(layout: LayoutResult, mode: LayoutMode) {
     if (!this.graph || !this.positionAttribute || !this.positionTexture) return;
-    this.cancelBenchmark('布局已切换');
+    this.cancelBenchmark(msg("Layout changed"));
     this.layout = layout; this.mode = mode;
     this.positionAttribute.array = layout.positions; this.positionAttribute.needsUpdate = true;
     this.updateLayoutBounds();
@@ -298,7 +298,7 @@ export class NetworkScene {
   }
   private setLineMode(mode: ViewConfig['lines']) {
     if (!this.links || !this.positionAttribute || !this.linkColors || !this.straightMaterial || !this.elbowMaterial) return;
-    this.cancelBenchmark('连线形式已切换');
+    this.cancelBenchmark(msg("Link style changed"));
     const oldGeometry = this.links.geometry;
     oldGeometry.dispose();
     this.resources = this.resources.filter(resource => resource !== oldGeometry);
@@ -348,7 +348,7 @@ export class NetworkScene {
   setFilter(filter: Filter) {
     this.filter = filter;
     if (!this.graph || !this.endpoints || !this.links) return;
-    this.cancelBenchmark('筛选条件已切换');
+    this.cancelBenchmark(msg("Filters changed"));
     const g = this.graph;
     if (this.guides) this.guides.visible = Object.values(filter).every(value => value === null);
     this.visible = new Uint8Array(g.nodeCount);
@@ -522,20 +522,20 @@ export class NetworkScene {
   };
   benchmark(durationMs = 30000): Promise<BenchmarkResult> {
     if (!this.graph || this.visibleNodeCount !== this.graph.nodeCount || this.visibleEdgeCount !== this.graph.edgeCount)
-      return Promise.reject(new Error('请先清除全部筛选，以全量网络进行测试'));
+      return Promise.reject(new LocalizedError(msg("Clear all filters before benchmarking the full network")));
     if (this.mode !== 'layered' || this.view.lines !== 'straight')
-      return Promise.reject(new Error('性能基准使用 3D 分层布局与直线连线，请先切换'));
-    this.cancelBenchmark('已开始新的性能测试');
+      return Promise.reject(new LocalizedError(msg("Use 3D layered layout and straight links for the benchmark")));
+    this.cancelBenchmark(msg("A new benchmark has started"));
     this.reset();
     return new Promise((resolve, reject) => {
       this.benchmarkState = { start: performance.now(), previous: 0, duration: durationMs, samples: [], resolve, reject, oldRotate: this.controls.autoRotate };
       this.controls.autoRotate = true; this.dirty = true;
     });
   }
-  private cancelBenchmark(message: string) {
+  private cancelBenchmark(message: LocalizedText) {
     if (!this.benchmarkState) return;
     this.controls.autoRotate = this.benchmarkState.oldRotate;
-    this.benchmarkState.reject(new Error(message)); this.benchmarkState = null;
+    this.benchmarkState.reject(new LocalizedError(message)); this.benchmarkState = null;
   }
   private animate = () => {
     if (this.disposed) return;

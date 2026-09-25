@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n/I18nProvider';
 import { ArrowRight, ChevronDown, Cpu, Layers3, Network, RotateCcw, Settings2 } from 'lucide-react';
 import { uniformSpec } from '../model/defaults';
 import { formatCount } from '../model/format';
@@ -15,6 +16,7 @@ function NumberField({ label, value, onChange, suffix, min = 0, step = 1, disabl
 export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onApply, onReset }:
   { spec: TopologySpec; setSpec: (spec: TopologySpec) => void; errors: Diagnostic[];
     busy: boolean; dirty: boolean; onApply: () => void; onReset: () => void }) {
+  const { t, text } = useI18n();
   const [tier, setTier] = useState(0), [sync, setSync] = useState(true);
   const activeTier = Math.min(tier, spec.tiers.length - 1);
   const current = spec.tiers[activeTier], top = activeTier === spec.tiers.length - 1;
@@ -52,84 +54,84 @@ export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onAppl
   const effective = current.ports * current.breakout;
   const free = effective - current.down - current.up - current.reserved;
   return <section className="config-panel" aria-labelledby="input-heading">
-    <div className="config-heading"><div><span className="section-step">01</span><Settings2 size={15} /><h2 id="input-heading">网络输入</h2><p>配置目标规模、网络结构与交换机规格</p></div>
+    <div className="config-heading"><div><span className="section-step">01</span><Settings2 size={15} /><h2 id="input-heading">{t("Network inputs")}</h2><p>{t("Set the target, topology, and switch hardware")}</p></div>
       <div className="config-heading-actions">
-        <span className="input-state">{dirty ? '参数待应用' : busy ? '正在生成…' : '参数已应用'}</span>
-        <button className="quiet-button" title="恢复默认参数" aria-label="恢复默认参数" onClick={onReset}><RotateCcw size={13} /><span>恢复默认</span></button>
+        <span className="input-state">{dirty ? t("Unapplied changes") : busy ? t("Generating…") : t("Inputs applied")}</span>
+        <button className="quiet-button" title={t("Restore default inputs")} aria-label={t("Restore default inputs")} onClick={onReset}><RotateCcw size={13} /><span>{t("Restore defaults")}</span></button>
         <button className="primary-button" onClick={onApply} disabled={errors.length > 0}>
-          {busy ? '重新计算网络' : '生成网络'}<ArrowRight size={14} />
+          {busy ? t("Rebuild network") : t("Generate network")}<ArrowRight size={14} />
         </button>
       </div>
     </div>
     <div className="config-grid">
       <section className="config-section">
-        <div className="section-label"><Network size={13} /> 计算方式</div>
+        <div className="section-label"><Network size={13} /> {t("Calculation mode")}</div>
         <div className="segmented mode-select">
-          <button className={spec.mode === 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'capacity' })}>最大容量</button>
-          <button className={spec.mode !== 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'endpoints' })}>目标规划</button>
+          <button className={spec.mode === 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'capacity' })}>{t("Maximum capacity")}</button>
+          <button className={spec.mode !== 'capacity' ? 'active' : ''} onClick={() => update({ mode: 'endpoints' })}>{t("Target planning")}</button>
         </div>
-        <p className="field-hint">{spec.mode === 'capacity' ? '从端口和层数推导满配网络。' : '按目标规模填充，保留完整上行路径。'}</p>
+        <p className="field-hint">{spec.mode === 'capacity' ? t("Derive full capacity from ports and tiers.") : t("Fill to the target while preserving all uplink paths.")}</p>
         {spec.mode !== 'capacity' && <div className="target-fields">
-          <label className="field"><span>规划依据</span><div className="select-wrap"><select aria-label="规划依据" value={spec.mode}
+          <label className="field"><span>{t("Plan by")}</span><div className="select-wrap"><select aria-label={t("Plan by")} value={spec.mode}
             onChange={e => update({ mode: e.target.value as 'endpoints' | 'bandwidth' })}>
-            <option value="endpoints">终端数量</option><option value="bandwidth">总注入带宽</option>
+            <option value="endpoints">{t("Endpoints")}</option><option value="bandwidth">{t("Total injection bandwidth")}</option>
           </select><ChevronDown size={13} /></div></label>
           {spec.mode === 'endpoints'
-            ? <NumberField label="目标终端数" value={spec.targetEndpoints} min={1} suffix="个" onChange={v => update({ targetEndpoints: v })} />
-            : <NumberField label="目标总注入带宽" value={spec.targetBandwidthTbps} step={0.1} min={0.001} suffix="Tbps" onChange={v => update({ targetBandwidthTbps: v })} />}
+            ? <NumberField label={t("Target endpoints")} value={spec.targetEndpoints} min={1} suffix={t("endpoints")} onChange={v => update({ targetEndpoints: v })} />
+            : <NumberField label={t("Target injection bandwidth")} value={spec.targetBandwidthTbps} step={0.1} min={0.001} suffix="Tbps" onChange={v => update({ targetBandwidthTbps: v })} />}
         </div>}
       </section>
       <section className="config-section">
-        <div className="section-label"><Layers3 size={13} /> 组网规则</div>
-        <label className="field"><span>交换机层数 <small>终端不计入 Tier</small></span>
-          <div className="tier-picker">{[2, 3, 4, 5].map(t => <button key={t} aria-label={t + ' tier'}
-            className={spec.tiers.length === t ? 'active' : ''} onClick={() => setTierCount(t)}>{t}<small> tier</small></button>)}</div>
+        <div className="section-label"><Layers3 size={13} /> {t("Topology rules")}</div>
+        <label className="field"><span>{t("Switch tiers")} <small>{t("Excludes endpoints")}</small></span>
+          <div className="tier-picker">{[2, 3, 4, 5].map(count => <button key={count} aria-label={count + ' ' + t('tier')}
+            className={spec.tiers.length === count ? 'active' : ''} onClick={() => setTierCount(count)}>{count}<small> {t('tier')}</small></button>)}</div>
         </label>
         <div className="field-grid">
-          <NumberField label="平面数量" value={spec.planes} min={1} suffix="planes" onChange={v => update({ planes: v })} />
-          <label className="field"><span>分平面起点</span><div className="select-wrap">
-            <select aria-label="分平面起点" value={spec.planeStart} onChange={e => update({ planeStart: Number(e.target.value) })}>
-              <option value={0}>终端接入</option>
-              {spec.tiers.slice(1).map((_, i) => <option key={i} value={i + 1}>T{i} 上方</option>)}
+          <NumberField label={t("Plane count")} value={spec.planes} min={1} suffix={t('planes')} onChange={v => update({ planes: v })} />
+          <label className="field"><span>{t("Plane split boundary")}</span><div className="select-wrap">
+            <select aria-label={t("Plane split boundary")} value={spec.planeStart} onChange={e => update({ planeStart: Number(e.target.value) })}>
+              <option value={0}>{t("Endpoint access")}</option>
+              {spec.tiers.slice(1).map((_, i) => <option key={i} value={i + 1}>{t('Above T{tier}', { tier: i })}</option>)}
             </select><ChevronDown size={13} /></div>
           </label>
         </div>
-        <p className="field-hint">{spec.planes === 1 && spec.tiers.length >= 3 ? '上层独立平面自动识别、展开并着色。'
-          : spec.planeStart === 0 ? '每个终端接入每个平面；交换 Fabric 独立。' : '按上行选择维度划分平面；下层共享。'}</p>
+        <p className="field-hint">{spec.planes === 1 && spec.tiers.length >= 3 ? t("Independent upper planes are detected, laid out, and colored automatically.")
+          : spec.planeStart === 0 ? t("Each endpoint connects to every independent fabric.") : t("Split uplink choices into planes; share lower tiers.")}</p>
       </section>
       <section className="config-section hardware-section">
-        <div className="section-label"><Cpu size={13} /> 交换机规格</div>
+        <div className="section-label"><Cpu size={13} /> {t("Switch hardware")}</div>
         <div className="hardware-toolbar">
           <div className="tier-tabs">{spec.tiers.map((_, i) => <button key={i} className={activeTier === i ? 'active' : ''}
-            aria-label={'编辑 T' + i} onClick={() => setTier(i)}>T{i}<span>{i === 0 ? '接入' : i === spec.tiers.length - 1 ? '顶层' : '汇聚'}</span></button>)}</div>
-          <label className="check-row"><input type="checkbox" checked={sync} onChange={e => setSync(e.target.checked)} />同步硬件规格到所有层</label>
+            aria-label={t('Edit T{tier}', { tier: i })} onClick={() => setTier(i)}>T{i}<span>{i === 0 ? t("Access") : i === spec.tiers.length - 1 ? t("Top") : t("Aggregation")}</span></button>)}</div>
+          <label className="check-row"><input type="checkbox" checked={sync} onChange={e => setSync(e.target.checked)} />{t("Sync hardware across tiers")}</label>
         </div>
         <div className="hardware-fields">
           <div className="hardware-profile"><div className="field-grid">
-            <NumberField label="物理端口数" value={current.ports} min={1} onChange={v => updateProfile('ports', v)} />
-            <NumberField label="Breakout" value={current.breakout} min={1} suffix="×" onChange={v => updateProfile('breakout', v)} />
-            <NumberField label="芯片交换带宽" value={current.chipTbps} step={0.1} min={0.001} suffix="Tbps" onChange={v => updateProfile('chipTbps', v)} />
-            <NumberField label="逻辑端口速率" value={current.portGbps} step={0.001} min={0.001} suffix="Gbps" onChange={v => updateProfile('portGbps', v)} />
+            <NumberField label={t("Physical ports")} value={current.ports} min={1} onChange={v => updateProfile('ports', v)} />
+            <NumberField label={t('Breakout')} value={current.breakout} min={1} suffix="×" onChange={v => updateProfile('breakout', v)} />
+            <NumberField label={t("ASIC bandwidth")} value={current.chipTbps} step={0.1} min={0.001} suffix="Tbps" onChange={v => updateProfile('chipTbps', v)} />
+            <NumberField label={t("Logical port speed")} value={current.portGbps} step={0.001} min={0.001} suffix="Gbps" onChange={v => updateProfile('portGbps', v)} />
           </div></div>
           <div className="hardware-allocation">
-            <div className="allocation-label"><span>端口分配</span><span>{top ? '顶层全部向下' : '下行 / 上行 / 预留'}</span></div>
+            <div className="allocation-label"><span>{t("Port allocation")}</span><span>{top ? t("All top-tier ports face down") : t("Down / Up / Reserved")}</span></div>
             <div className="field-grid three">
-              <NumberField label="下行" value={current.down} min={1} onChange={v => updateProfile('down', v)} />
-              <NumberField label="上行" value={current.up} min={top ? 0 : 1} disabled={top} onChange={v => updateProfile('up', v)} />
-              <NumberField label="预留" value={current.reserved} onChange={v => updateProfile('reserved', v)} />
+              <NumberField label={t("Downlinks")} value={current.down} min={1} onChange={v => updateProfile('down', v)} />
+              <NumberField label={t("Uplinks")} value={current.up} min={top ? 0 : 1} disabled={top} onChange={v => updateProfile('up', v)} />
+              <NumberField label={t("Reserved")} value={current.reserved} onChange={v => updateProfile('reserved', v)} />
             </div>
-            <div className="port-bar" aria-label="端口分配比例">
+            <div className="port-bar" aria-label={t("Port allocation ratio")}>
               <span className="port-down" style={{ width: Math.max(0, Math.min(100, current.down / effective * 100)) + '%' }} />
               <span className="port-up" style={{ width: Math.max(0, Math.min(100, current.up / effective * 100)) + '%' }} />
               <span className="port-reserved" style={{ width: Math.max(0, Math.min(100, current.reserved / effective * 100)) + '%' }} />
             </div>
-            <div className="allocation-foot"><span><i className="dot teal" />下行 <i className="dot violet" />上行</span>
-              <span className={free < 0 ? 'error-text' : ''}>未分配 {Number.isFinite(free) ? free : '—'}</span></div>
-            <div className="effective-ports"><span>有效逻辑端口</span><strong>{Number.isFinite(effective) ? formatCount(effective) : '—'} <small>ports</small></strong></div>
+            <div className="allocation-foot"><span><i className="dot teal" />{t("Downlinks")} <i className="dot violet" />{t("Uplinks")}</span>
+              <span className={free < 0 ? 'error-text' : ''}>{t('Unassigned {count}', { count: Number.isFinite(free) ? free : '—' })}</span></div>
+            <div className="effective-ports"><span>{t("Effective logical ports")}</span><strong>{Number.isFinite(effective) ? formatCount(effective) : '—'} <small>{t('ports')}</small></strong></div>
           </div>
         </div>
       </section>
     </div>
-    {errors.length > 0 && <div className="validation-errors" role="alert">{errors.map((e, i) => <p key={i}>{e.message}</p>)}</div>}
+    {errors.length > 0 && <div className="validation-errors" role="alert">{errors.map((e, i) => <p key={i}>{text(e.message)}</p>)}</div>}
   </section>;
 }

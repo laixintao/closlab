@@ -1,3 +1,4 @@
+import { LocalizedError, msg } from '../i18n/core';
 export class TopologyClient {
   private worker = new Worker(new URL('./topology.worker.ts', import.meta.url), { type: 'module' });
   private sequence = 0;
@@ -7,9 +8,9 @@ export class TopologyClient {
       const pending = this.pending.get(data.id);
       if (!pending) return;
       this.pending.delete(data.id);
-      if (data.error) pending.reject(new Error(data.error)); else pending.resolve(data.result);
+      if (data.error) pending.reject(new LocalizedError(data.error)); else pending.resolve(data.result);
     };
-    this.worker.onerror = event => this.rejectAll(new Error(event.message || '计算进程无法启动'));
+    this.worker.onerror = event => this.rejectAll(new LocalizedError(event.message || msg('Could not start the computation worker')));
   }
   request<T>(kind: 'build' | 'layout' | 'path' | 'allPaths', payload: unknown): Promise<T> {
     const id = ++this.sequence;
@@ -22,5 +23,5 @@ export class TopologyClient {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
   }
-  dispose() { this.worker.terminate(); this.rejectAll(new Error('计算任务已取消')); }
+  dispose() { this.worker.terminate(); this.rejectAll(new LocalizedError(msg("Computation cancelled"))); }
 }

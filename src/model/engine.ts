@@ -1,10 +1,11 @@
+import { LocalizedError, msg, type LocalizedText } from '../i18n/core';
 import { RENDER_BUDGET, type CapacitySummary, type Diagnostic, type NodeInfo, type TopologyBuffers, type TopologySpec } from './types';
 import { identifyColorGroups } from './colorGroups';
 
-export class SpecError extends Error {
+export class SpecError extends LocalizedError {
   diagnostics: Diagnostic[];
   constructor(diagnostics: Diagnostic[]) {
-    super(diagnostics.map(d => d.message).join('；'));
+    super(diagnostics.map(d => d.message));
     this.name = 'SpecError';
     this.diagnostics = diagnostics;
   }
@@ -17,43 +18,42 @@ const positive = (x: unknown): x is number => typeof x === 'number' && Number.is
 /** Also validates untrusted JSON, before performing arithmetic or allocating buffers. */
 export function validateSpec(value: unknown): Diagnostic[] {
   const errors: Diagnostic[] = [];
-  const fail = (field: string, message: string) => errors.push({ field, message });
-  if (!value || typeof value !== 'object') return [{ field: 'spec', message: '配置必须是一个对象' }];
+  const fail = (field: string, message: LocalizedText) => errors.push({ field, message });
+  if (!value || typeof value !== 'object') return [{ field: 'spec', message: msg("Configuration must be an object") }];
   const s = value as TopologySpec;
-  if (s.version !== 1) fail('version', '不支持此配置版本');
-  if (!['capacity', 'endpoints', 'bandwidth'].includes(s.mode)) fail('mode', '计算方式无效');
+  if (s.version !== 1) fail('version', msg("Unsupported configuration version"));
+  if (!['capacity', 'endpoints', 'bandwidth'].includes(s.mode)) fail('mode', msg("Invalid calculation mode"));
   if (!Array.isArray(s.tiers) || s.tiers.length < 2 || s.tiers.length > 5)
-    return [...errors, { field: 'tiers', message: '交换机层数必须为 2–5 层' }];
-  if (!integer(s.planes, 1, 64)) fail('planes', '平面数必须为 1–64 的整数');
-  if (!integer(s.planeStart, 0, s.tiers.length - 1)) fail('planeStart', '分平面起点超出交换机层级');
-  if (!integer(s.targetEndpoints, 1, Number.MAX_SAFE_INTEGER)) fail('targetEndpoints', '目标终端数必须为正整数');
-  if (!positive(s.targetBandwidthTbps)) fail('targetBandwidthTbps', '目标总注入带宽必须大于 0');
+    return [...errors, { field: 'tiers', message: msg("Switch tier count must be between 2 and 5") }];
+  if (!integer(s.planes, 1, 64)) fail('planes', msg("Plane count must be an integer from 1 to 64"));
+  if (!integer(s.planeStart, 0, s.tiers.length - 1)) fail('planeStart', msg("Plane split boundary is outside the switch tiers"));
+  if (!integer(s.targetEndpoints, 1, Number.MAX_SAFE_INTEGER)) fail('targetEndpoints', msg("Target endpoint count must be a positive integer"));
+  if (!positive(s.targetBandwidthTbps)) fail('targetBandwidthTbps', msg("Target injection bandwidth must be greater than 0"));
   s.tiers.forEach((p, i) => {
     const field = 'tiers.' + i;
-    const label = 'T' + i + '：';
-    if (!p || typeof p !== 'object') { fail(field, label + '交换机参数缺失'); return; }
-    if (!integer(p.ports, 1, 4096)) fail(field + '.ports', label + '物理端口数必须为 1–4096');
-    if (!integer(p.breakout, 1, 64)) fail(field + '.breakout', label + '拆分数必须为 1–64');
+    if (!p || typeof p !== 'object') { fail(field, msg('T{tier}: {error}', { tier: i, error: msg("Switch parameters are missing") })); return; }
+    if (!integer(p.ports, 1, 4096)) fail(field + '.ports', msg('T{tier}: {error}', { tier: i, error: msg("Physical port count must be from 1 to 4096") }));
+    if (!integer(p.breakout, 1, 64)) fail(field + '.breakout', msg('T{tier}: {error}', { tier: i, error: msg("Breakout must be from 1 to 64") }));
     if (!positive(p.portGbps) || !Number.isSafeInteger(Math.round(p.portGbps * 1000)) ||
         Math.abs(p.portGbps * 1000 - Math.round(p.portGbps * 1000)) > 1e-6)
-      fail(field + '.portGbps', label + '逻辑端口速率必须为正数，精确到 0.001 Gbps');
-    if (!positive(p.chipTbps)) fail(field + '.chipTbps', label + '芯片带宽必须大于 0');
-    if (!integer(p.down, 1, 262144)) fail(field + '.down', label + '下行端口必须为正整数');
+      fail(field + '.portGbps', msg('T{tier}: {error}', { tier: i, error: msg("Logical port speed must be positive with 0.001 Gbps precision") }));
+    if (!positive(p.chipTbps)) fail(field + '.chipTbps', msg('T{tier}: {error}', { tier: i, error: msg("ASIC bandwidth must be greater than 0") }));
+    if (!integer(p.down, 1, 262144)) fail(field + '.down', msg('T{tier}: {error}', { tier: i, error: msg("Downlink count must be a positive integer") }));
     if (!integer(p.up, i === s.tiers.length - 1 ? 0 : 1, 262144))
-      fail(field + '.up', label + '非顶层必须至少保留一个上行端口');
-    if (!integer(p.reserved, 0, 262144)) fail(field + '.reserved', label + '预留端口必须为非负整数');
-    if (i === s.tiers.length - 1 && p.up !== 0) fail(field + '.up', label + '顶层上行端口必须为 0');
+      fail(field + '.up', msg('T{tier}: {error}', { tier: i, error: msg("Non-top tiers must retain at least one uplink") }));
+    if (!integer(p.reserved, 0, 262144)) fail(field + '.reserved', msg('T{tier}: {error}', { tier: i, error: msg("Reserved port count must be a non-negative integer") }));
+    if (i === s.tiers.length - 1 && p.up !== 0) fail(field + '.up', msg('T{tier}: {error}', { tier: i, error: msg("The top tier must have zero uplinks") }));
     if (p.down + p.up + p.reserved > p.ports * p.breakout)
-      fail(field + '.down', label + '上下行与预留端口之和超过有效端口数');
+      fail(field + '.down', msg('T{tier}: {error}', { tier: i, error: msg("Downlink, uplink, and reserved ports exceed effective ports") }));
     if ((p.down + p.up) * p.portGbps > p.chipTbps * 1000 + 1e-6)
-      fail(field + '.chipTbps', label + '已分配端口带宽超过芯片单向交换容量');
+      fail(field + '.chipTbps', msg('T{tier}: {error}', { tier: i, error: msg("Allocated port bandwidth exceeds one-way ASIC capacity") }));
     if (i && s.tiers[i - 1]?.portGbps !== p.portGbps)
-      fail(field + '.portGbps', label + '相邻层的逻辑链路速率必须一致');
+      fail(field + '.portGbps', msg('T{tier}: {error}', { tier: i, error: msg("Logical link speeds must match across adjacent tiers") }));
   });
   if (integer(s.planeStart, 1, s.tiers.length - 1) && integer(s.planes, 1, 64)) {
     const uplinks = s.tiers[s.planeStart - 1]?.up;
     if (uplinks % s.planes !== 0)
-      fail('planes', '分平面边界的上行端口数必须能被平面数整除');
+      fail('planes', msg("Uplink count at the plane boundary must be divisible by the plane count"));
   }
   return errors;
 }
@@ -70,7 +70,7 @@ export function calculate(spec: TopologySpec): CapacitySummary {
     spec.mode === 'endpoints' ? BigInt(spec.targetEndpoints) : ceilDiv(targetMbps, endpointMbps);
   if (endpoints > maxEndpoints) throw new SpecError([{
     field: spec.mode === 'endpoints' ? 'targetEndpoints' : 'targetBandwidthTbps',
-    message: '目标超过该拓扑的最大容量 ' + maxEndpoints.toLocaleString() + ' 个终端，请调整端口分配或增加 tier',
+    message: msg('Target exceeds the maximum capacity of {count} endpoints; adjust ports or add tiers', { count: maxEndpoints.toLocaleString('en-US') }),
   }]);
   const groups: bigint[] = [], widths: bigint[] = [], switches: bigint[] = [];
   let g = endpoints, width = 1n;
@@ -84,15 +84,15 @@ export function calculate(spec: TopologySpec): CapacitySummary {
   const totalLinks = links.reduce((a, b) => a + b, 0n);
   const switchCount = switches.reduce((a, b) => a + b, 0n);
   const totalNodes = endpoints + switchCount;
-  const warnings: string[] = [];
+  const warnings: LocalizedText[] = [];
   const canRender = totalNodes <= BigInt(RENDER_BUDGET.nodes) && totalLinks <= BigInt(RENDER_BUDGET.links);
-  if (!canRender) warnings.push('已完成容量计算。全量渲染上限为 25 万总节点 / 500 万条链路；请用目标规划缩小规模。');
+  if (!canRender) warnings.push(msg("Capacity calculated. Full rendering supports 250,000 nodes / 5,000,000 links; reduce the scale with Target planning."));
   if (groups[0] * BigInt(spec.tiers[0].down) !== endpoints)
-    warnings.push('最后一个接入组未满配；交换机上行路径保持完整。');
+    warnings.push(msg("The final access group is partially filled; all switch uplink paths are preserved."));
   if (spec.tiers.slice(0, -1).some(p => p.down > p.up))
-    warnings.push('部分层存在带宽收敛，终端总注入带宽不代表端到端无阻塞带宽。');
+    warnings.push(msg("Some tiers are oversubscribed; total injection bandwidth is not end-to-end non-blocking bandwidth."));
   if (spec.planes > 1 && spec.planeStart > 0)
-    warnings.push('交换层分平面按上行选择维度分组；固定端口配置时，改变分组数量不额外复制设备。');
+    warnings.push(msg("Switch-tier planes group uplink choices; changing the group count does not replicate devices when ports are fixed."));
   return {
     endpoints, maxEndpoints, endpointSlots: groups[0] * BigInt(spec.tiers[0].down),
     switches, switchCount, totalNodes, links, totalLinks, groups, widths, replicas,
@@ -102,7 +102,7 @@ export function calculate(spec: TopologySpec): CapacitySummary {
 }
 
 export function generate(spec: TopologySpec, summary = calculate(spec)): TopologyBuffers {
-  if (!summary.canRender) throw new Error('拓扑超过全量渲染预算');
+  if (!summary.canRender) throw new LocalizedError(msg("Topology exceeds the full-rendering budget"));
   const endpointCount = Number(summary.endpoints), nodeCount = Number(summary.totalNodes);
   const edgeCount = Number(summary.totalLinks);
   const tier = new Int8Array(nodeCount).fill(-1);
@@ -155,7 +155,7 @@ export function generate(spec: TopologySpec, summary = calculate(spec)): Topolog
       }
     }
   }
-  if (e !== edges.length) throw new Error('内部错误：链路数量与容量计算不一致');
+  if (e !== edges.length) throw new LocalizedError(msg("Internal error: link count differs from capacity calculation"));
   const adjacencyOffsets = new Uint32Array(nodeCount + 1);
   for (const id of edges) adjacencyOffsets[id + 1]++;
   for (let i = 1; i <= nodeCount; i++) adjacencyOffsets[i] += adjacencyOffsets[i - 1];
