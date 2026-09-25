@@ -274,7 +274,7 @@ export default function App() {
                     {Array.from({ length: Math.min(colorGroupCount, 8) }, (_, i) =>
                       <span key={i}><i style={{ background: groupColor(i) }} />P{i}</span>)}
                     <span>{naturalGroups ? t('{count} auto planes', { count: colorGroupCount }) : t(colorGroupCount === 1 ? '{count} plane' : '{count} planes', { count: colorGroupCount })}</span>
-                    {podColors && <span>{t("Fabric by Pod · Spines / links by plane")}</span>}</>}</div>
+                    {podColors && <span>{t("Pods below · Planes above")}</span>}</>}</div>
                 <div className="canvas-settings">
                   <div className="color-mode" data-testid="color-mode">{podColors ? t("Pod / plane colors · Auto") : groupedColors ? t("Plane colors · Auto") : t("Tier colors · Auto")}</div>
                   <label>{t("Show endpoints")}<input aria-label={t("Show endpoints")} type="checkbox" checked={view.showEndpoints}

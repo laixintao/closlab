@@ -45,7 +45,7 @@ const lineFragment = [
 const straightVertex = [
   'attribute vec3 linkColor;', 'varying vec3 vColor;', 'flat varying vec3 vPlaneColor;',
   // Edges are ordered lower tier -> upper tier. WebGL2 flat interpolation takes
-  // the final vertex, keeping that plane's color all the way to a shared Leaf.
+  // the final vertex, keeping one plane or Pod color along the entire link.
   'void main(){ vColor=linkColor; vPlaneColor=linkColor; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
 ].join('\n');
 

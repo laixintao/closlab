@@ -122,7 +122,7 @@ test('F16 Pod and plane filters isolate the corresponding ToRs and Fabric switch
   await expect(page.locator('.topology-label').filter({ hasText: /^Pod / })).toHaveCount(64);
   await expect(page.locator('.composition-list > div').filter({ hasText: 'T1' })).toContainText('1,024');
   await expect(page.locator('.composition-list > div').filter({ hasText: 'T2' })).toContainText('1,024');
-  await expect(page.locator('.canvas-legend')).toContainText("Fabric by Pod");
+  await expect(page.locator('.canvas-legend')).toContainText("Pods below · Planes above");
   const fabricColors: string[] = [];
   for (const node of ['T1-0', 'T1-15', 'T1-16']) {
     await page.getByLabel("Search nodes", { exact: true }).fill(node);

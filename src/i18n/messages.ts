@@ -157,7 +157,7 @@ export const zh = {
   "Full topology": "全量拓扑",
   "Scroll to zoom · Right-drag to pan": "滚轮缩放 · 右键拖动平移",
   "Shared": "共享",
-  "Fabric by Pod · Spines / links by plane": "Fabric 按 Pod · Spine / 连线按平面",
+  "Pods below · Planes above": "下层按 Pod · 上层按平面",
   "Pod / plane colors · Auto": "Pod / 平面颜色 · 自动",
   "Plane colors · Auto": "平面颜色 · 自动",
   "Tier colors · Auto": "层级颜色 · 自动",

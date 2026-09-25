@@ -189,7 +189,7 @@ export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary:
     if (podSheets) for (let pod = 0; pod < podCount; pod++) {
       const z = podZ(pod), width = leafRowWidth / 2 + margin;
       frame([[-width, gap - margin, z], [-width, gap * 2 + margin, z],
-        [width, gap * 2 + margin, z], [width, gap - margin, z]], -1);
+        [width, gap * 2 + margin, z], [width, gap - margin, z]], pod);
       if (pod < 64) labels.push({ text: `Pod ${pod}`, position: [width, gap - margin, z], plane: null, pod });
     }
   }

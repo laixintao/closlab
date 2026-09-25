@@ -74,7 +74,7 @@ export interface TopologyBuffers extends ColorGrouping {
   pod: Int32Array;
   group: Uint32Array;
   route: Uint32Array;
-  /** Each pair is ordered lower tier -> upper tier; plane-colored links use the upper endpoint's plane. */
+  /** Each pair is ordered lower tier -> upper tier; group-colored links use the upper endpoint's connection color. */
   edges: Uint32Array;
   adjacencyOffsets: Uint32Array;
   incidentEdges: Uint32Array;
@@ -83,6 +83,7 @@ export interface LayoutResult {
   positions: Float32Array; span: number; height: number;
   /** Plane / Pod outlines are guides, not devices or physical links. */
   guides: Float32Array;
+  /** Palette IDs per guide vertex: upper frames use plane IDs, lower frames use Pod IDs. */
   guideGroups: Int32Array;
   labels: { text: string; position: [number, number, number]; plane: number | null; pod: number | null }[];
 }

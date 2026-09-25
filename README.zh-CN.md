@@ -10,7 +10,7 @@ React + TypeScript + Vite + Three.js / WebGL2。所有计算在浏览器本地�
 
 ## 启动
 
-需要 Node.js 22.12+ 和 npm。
+需要 Node.js 22.12+ 和 npm。已验证的 Node.js 版本固定在 `.node-version` 中，`package.json` 声明使用 npm，依赖以 `package-lock.json` 为准。
 
 ~~~sh
 npm ci
@@ -53,11 +53,13 @@ ClosLab 构建后是静态网站，Pages 直接托管 `dist/` 即可。计算和
 | `NODE_VERSION` | `26.5.0`，本地构建验证使用的版本 |
 | `SKIP_DEPENDENCY_INSTALL` | `1` |
 
-仓库同时包含 `package-lock.json` 和 `yarn.lock`。跳过自动依赖安装后，由构建命令中的 `npm ci` 明确使用 npm。Pages 的 v3 构建系统不会从 `package.json` 的 `engines` 自动选择 Node.js 版本，因此需要显式设置。参见 [Cloudflare 构建环境说明](https://developers.cloudflare.com/pages/configuration/build-image/)。
+仓库统一使用 npm，只提交 `package-lock.json`。跳过自动依赖安装后，由构建命令中的 `npm ci` 按锁文件安装依赖。Pages 会读取 `.node-version` 中的 Node.js 版本；如果设置了 `NODE_VERSION`，请与该文件保持一致。Pages 的 v3 构建系统不会从 `package.json` 的 `engines` 自动选择 Node.js 版本。参见 [Cloudflare 构建环境说明](https://developers.cloudflare.com/pages/configuration/build-image/)。
 
 5. 点击 **Save and Deploy**，部署成功后打开控制台给出的 `https://<project-name>.pages.dev` 地址。
 
 后续推送到生产分支会自动部署；其他启用的分支会生成预览部署。参见 [Git 集成指南](https://developers.cloudflare.com/pages/get-started/git-integration/)。
+
+如果部署日志出现 Yarn 和 `YN0028`，说明构建仍在使用 Yarn。请确认部署的提交中已移除 `yarn.lock`，在当前部署环境（Production 或 Preview）设置 `SKIP_DEPENDENCY_INSTALL=1`，并将构建命令设为 `npm ci && npm run build`。保存设置后重新部署更新后的提交，安装日志应显示 npm。`YN0028` 表示 Yarn 安装需要修改锁文件，但当前启用了不可变安装；参见 [Yarn 错误说明](https://yarnpkg.com/advanced/error-codes#yn0028---frozen_lockfile_exception)。
 
 ### 从本机直接上传
 
@@ -93,7 +95,7 @@ Direct Upload 项目无法直接转换为 Git 集成项目；如需后续自动�
 
 多平面网络在「3D 分层」和「平面展开」中，每个平面的交换机都位于一块独立的几何平面内，每个交换层只排一行，长度随节点数延伸，不折行、不限制在固定盒子内。「平面展开」使用更大的平面间距。「2D 分层」将各平面从左到右平铺到互不重叠的区域，交换层高度对齐，各区域内每层只排一行；平面内部链路不会穿过其他平面的区域。共享终端及共享交换层单独放在下方。按平面着色时，平面到共享 Leaf 的整条链路保持该平面的颜色，共享节点本身保持中性色；直线与折线均适用。径向布局按层级组织。
 
-平面颜色与几何布局均自动生成。未显式分平面的 3–5 tier 拓扑，会移除共享 Leaf 层后按上层实际连通分量识别平面；显式多平面配置使用配置的平面分组。3D 中每个平面是独立的竖直面、每层一行；三层网络的共享 ToR 按 Pod 横排，同一 Pod 的 Fabric Switch 位于这些横排上方。平面及 Pod 边框、Plane / Pod 编号都是辅助标注，不计入设备和物理链路；规模较大时每类最多标注前 64 个，全部设备和链路仍照常渲染。2D 中自动平面同样横向平铺。Spine 及下联线路按平面着色，共享 ToR 上方的 Fabric 节点按 Pod 着色；共享 Leaf 和终端为中性色。平面筛选与节点详情使用同一组平面编号。ToR 只连接本 Pod 的 T1；T1 向上只进入所属平面的 Spine。共享 Spine 可以服务多个 Pod，Pod 筛选会保留它们。默认两层单平面网络整体放在同一个几何面内：T0、T1 各占一行，终端也位于该面，统一使用 P0 颜色。径向布局仍按同心层组织。已有 `colorBy=tier` 链接会自动升级为平面着色，无需选择颜色模式。
+平面颜色与几何布局均自动生成。未显式分平面的 3–5 tier 拓扑，会移除共享 Leaf 层后按上层实际连通分量识别平面；显式多平面配置使用配置的平面分组。3D 中每个平面是独立的竖直面、每层一行；三层网络的共享 ToR 按 Pod 横排，同一 Pod 的 Fabric Switch 位于这些横排上方。平面及 Pod 边框、Plane / Pod 编号都是辅助标注，不计入设备和物理链路；规模较大时每类最多标注前 64 个，全部设备和链路仍照常渲染。2D 中自动平面同样横向平铺。Pod 布局下，下方每个 Pod 的 ToR、Fabric、ToR–Fabric 连线、边框及标签统一使用 Pod 颜色；上方 Fabric–Spine 连线、Spine 和平面边框保持网络平面颜色，终端保持中性色。平面筛选与节点详情使用同一组平面编号。ToR 只连接本 Pod 的 T1；T1 向上只进入所属平面的 Spine。共享 Spine 可以服务多个 Pod，Pod 筛选会保留它们。默认两层单平面网络整体放在同一个几何面内：T0、T1 各占一行，终端也位于该面，统一使用 P0 颜色。径向布局仍按同心层组织。已有 `colorBy=tier` 链接会自动升级为平面着色，无需选择颜色模式。
 
 参数和视图会本地保存；每次生成网络或修改视图，地址栏 query params 会同步当前已应用配置。点击顶部「分享」复制链接，打开链接直接还原网络，链接参数优先于浏览器本地保存的配置。未应用的输入不会写入分享链接。也可使用「导出配置」「导入」交换 JSON。
 
@@ -206,7 +208,7 @@ CLOSLAB_ENFORCE_PERF=1 npm run benchmark
 
 该规模用于复现示意图中 Fabric / Spine 等规模的结构，不代表文章公布了这些部署总量。Spine 预留端口未绘制外部连接。一般的部分填充 Clos 不保证 Fabric 与 Spine 数量相等，计算引擎仍按输入端口和目标规模计算。
 
-共享 ToR 上方的 Fabric Switch 按 Pod 着色，同一 Pod 的 Fabric 节点同色；Spine、平面边框及层间连线继续按平面着色。节点颜色与连线颜色独立，直线和折线视图遵循相同规则。
+下方每个 Pod 的 ToR、Fabric、ToR–Fabric 连线、边框及标签统一使用 Pod 颜色；上方 Fabric–Spine 连线、Spine 和平面边框使用网络平面颜色。直线和折线视图遵循相同规则。
 
 可直接打开的等规模示例：
 

@@ -10,13 +10,14 @@ export const usesGroupColors = (graph: TopologyBuffers, _colorBy?: ViewConfig['c
 /** Fabric switches above shared ToRs belong to both a Pod and an upper plane. */
 export const usesPodColors = (graph: TopologyBuffers): boolean =>
   graph.tierOffsets.length > 2 && graph.colorGroup[graph.tierOffsets[0]] < 0;
-/** Link endpoints retain plane membership independently of device display colors. */
+/** The upper endpoint colors each link: Fabric downlinks by Pod, Spine downlinks by plane. */
 export function connectionColor(graph: TopologyBuffers, id: number, colorBy: ViewConfig['colorBy']): string {
+  if (usesPodColors(graph) && graph.tier[id] === 1 && graph.pod[id] >= 0) return groupColor(graph.pod[id]);
   if (!usesGroupColors(graph, colorBy)) return TIER_COLORS[graph.tier[id] + 1];
   const group = graph.colorGroup[id];
   return group < 0 ? SHARED_COLOR : groupColor(group);
 }
 export function nodeColor(graph: TopologyBuffers, id: number, colorBy: ViewConfig['colorBy']): string {
-  if (usesPodColors(graph) && graph.tier[id] === 1 && graph.pod[id] >= 0) return groupColor(graph.pod[id]);
+  if (usesPodColors(graph) && graph.tier[id] >= 0 && graph.tier[id] <= 1 && graph.pod[id] >= 0) return groupColor(graph.pod[id]);
   return connectionColor(graph, id, colorBy);
 }

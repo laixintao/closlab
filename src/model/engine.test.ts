@@ -221,7 +221,7 @@ describe('validation, persistence and layouts', () => {
     const spec = uniformSpec(8, 3), summary = calculate(spec), graph = generate(spec, summary);
     const original = graph.edges.slice();
     for (const mode of ['layered', 'planes', 'flat'] as const) {
-      const { positions, guides } = layoutGraph(graph, spec, summary, mode);
+      const { positions, guides, guideGroups } = layoutGraph(graph, spec, summary, mode);
       const bounds = new Map<number, { min: number; max: number }>();
       for (let e = 0; e < graph.edges.length; e += 2) {
         const a = graph.edges[e], b = graph.edges[e + 1];
@@ -237,7 +237,11 @@ describe('validation, persistence and layouts', () => {
       expect(bounds.size).toBe(4);
       for (let p = 1; p < 4; p++) expect(bounds.get(p)!.min).toBeGreaterThan(bounds.get(p - 1)!.max);
       expect(new Set(Array.from({ length: graph.nodeCount }, (_, n) => positions.slice(n * 3, n * 3 + 3).join(':'))).size).toBe(graph.nodeCount);
-      if (mode !== 'flat') expect(guides.length).toBe((4 + Number(summary.groups[1])) * 8 * 3);
+      if (mode !== 'flat') {
+        expect(guides.length).toBe((4 + Number(summary.groups[1])) * 8 * 3);
+        for (let pod = 0; pod < Number(summary.groups[1]); pod++)
+          expect([...guideGroups.slice((4 + pod) * 8, (5 + pod) * 8)]).toEqual(Array(8).fill(pod));
+      }
       expect(graph.edges).toEqual(original);
     }
     const explicit = { ...spec, planes: 4, planeStart: 1 }, explicitGraph = generate(explicit);
