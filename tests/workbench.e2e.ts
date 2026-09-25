@@ -58,30 +58,26 @@ test('default graph draws real nodes and links without browser errors', async ({
   expect(await page.locator('.inspector-content').evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
   await page.screenshot({ path: info.outputPath('three-tier-inspector.png') });
 });
-test('four layouts and elbow segments preserve the physical graph', async ({ page }, info) => {
+test('four layouts preserve the physical graph', async ({ page }, info) => {
   for (const mode of ['planes', 'flat', 'radial', 'layered']) {
     await page.getByLabel("Topology layout", { exact: true }).selectOption(mode);
     await ready(page);
   }
-  await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '3072');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1024');
   await page.getByLabel("Topology layout", { exact: true }).selectOption('flat');
   await ready(page);
-  await page.screenshot({ path: info.outputPath('flat-elbow.png'), fullPage: true });
   const spec = uniformSpec(); spec.planes = 8; spec.planeStart = 1;
   await importSpec(page, spec);
   await ready(page);
   await page.getByLabel("Topology layout", { exact: true }).selectOption('planes');
   await page.getByRole('button', { name: "Focus mode", exact: true }).click();
   await page.screenshot({ path: info.outputPath('shared-leaf-plane-colors.png') });
-  await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '3072');
-  await page.screenshot({ path: info.outputPath('shared-leaf-plane-colors-elbow.png') });
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1024');
   await page.getByLabel("Topology layout", { exact: true }).selectOption('flat');
   await ready(page);
   await page.screenshot({ path: info.outputPath('shared-leaf-plane-rows-2d.png') });
 });
-test('single-plane three-tier networks expose connectivity groups in both line modes', async ({ page }, info) => {
+test('single-plane three-tier networks expose connectivity groups', async ({ page }, info) => {
   await page.goto('/?ports=8&tiers=3&planes=1&colorBy=tier');
   await ready(page, 208, 384);
   await expect(page.getByTestId('color-mode')).toContainText("Auto");
@@ -96,9 +92,7 @@ test('single-plane three-tier networks expose connectivity groups in both line m
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '5');
   await page.screenshot({ path: info.outputPath('implicit-groups-straight.png') });
-  await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1152');
-  await page.screenshot({ path: info.outputPath('implicit-groups-elbow.png') });
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '384');
   await page.reload();
   await ready(page, 208, 384);
   await expect(page.locator('.canvas-legend')).toContainText("4 auto planes");
@@ -154,10 +148,7 @@ test('F16 Pod and plane filters isolate the corresponding ToRs and Fabric switch
   await page.getByLabel("Filter Pod", { exact: true }).fill('0');
   await ready(page, 1104, 2048);
   await page.screenshot({ path: info.outputPath('f16-pod-colors-straight.png') });
-  await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '6144');
-  await page.screenshot({ path: info.outputPath('f16-pod-colors-elbow.png') });
-  await page.getByRole('button', { name: "Straight", exact: true }).click();
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '2048');
   await page.getByLabel("Filter plane", { exact: true }).selectOption('0');
   await ready(page, 129, 128);
   await page.getByRole('button', { name: "Clear filters", exact: true }).click();
@@ -165,7 +156,7 @@ test('F16 Pod and plane filters isolate the corresponding ToRs and Fabric switch
   await page.getByRole('button', { name: "Focus mode", exact: true }).click();
   await page.screenshot({ path: info.outputPath('f16-pods-and-planes.png') });
 });
-test('highlights all ECMP routes, switches line modes, and clears results', async ({ page }, info) => {
+test('highlights all ECMP routes and clears results', async ({ page }, info) => {
   await page.goto('/?ports=8&tiers=3&layout=planes&showEndpoints=false');
   await ready(page, 80, 256);
   await page.getByLabel("Source node", { exact: true }).fill('T0-0');
@@ -176,8 +167,7 @@ test('highlights all ECMP routes, switches line modes, and clears results', asyn
   await expect(page.locator('.selection-chip')).toContainText("All shortest paths: 16");
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '7');
   await page.screenshot({ path: info.outputPath('all-ecmp-paths.png') });
-  await page.getByRole('button', { name: "Orthogonal", exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '768');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '256');
   await expect(page.getByTestId('all-paths-result')).toBeVisible();
   await page.getByRole('button', { name: "Clear path", exact: true }).click();
   await expect(page.getByTestId('all-paths-result')).toHaveCount(0);

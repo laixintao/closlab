@@ -15,11 +15,11 @@ export function parseProject(text: string): SavedProject {
   if (errors.length) throw new SpecError(errors);
   const v = project.view ?? DEFAULT_VIEW;
   if (!['layered', 'planes', 'flat', 'radial'].includes(v.layout) ||
-      !['straight', 'elbow'].includes(v.lines) || !['tier', 'plane'].includes(v.colorBy) ||
+      !['tier', 'plane'].includes(v.colorBy) ||
       typeof v.opacity !== 'number' || !Number.isFinite(v.opacity) || v.opacity < 0.01 || v.opacity > 0.8)
     throw new LocalizedError(msg("Invalid visualization configuration"));
   if (v.showEndpoints !== undefined && typeof v.showEndpoints !== 'boolean') throw new LocalizedError(msg("Invalid endpoint visibility setting"));
-  // Legacy colorBy=tier links also use automatic plane colors now.
+  // Ignore retired line-style settings and normalize legacy tier coloring.
   return { format: 'closlab', version: 1, spec: project.spec,
-    view: { ...v, colorBy: 'plane', showEndpoints: v.showEndpoints ?? true } };
+    view: { layout: v.layout, opacity: v.opacity, colorBy: 'plane', showEndpoints: v.showEndpoints ?? true } };
 }

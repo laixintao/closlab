@@ -60,7 +60,6 @@ export function projectFromQuery(search: string): SavedProject | null {
   }
   const view: ViewConfig = {
     layout: (params.get('layout') ?? DEFAULT_VIEW.layout) as ViewConfig['layout'],
-    lines: (params.get('lines') ?? DEFAULT_VIEW.lines) as ViewConfig['lines'],
     colorBy: (params.get('colorBy') ?? DEFAULT_VIEW.colorBy) as ViewConfig['colorBy'],
     opacity: number('opacity', DEFAULT_VIEW.opacity),
     showEndpoints: params.get('showEndpoints') === 'false' ? false : true,

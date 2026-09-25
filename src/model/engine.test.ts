@@ -203,6 +203,9 @@ describe('validation, persistence and layouts', () => {
   it('round-trips JSON and validates view state', () => {
     const s = multi(100000);
     expect(parseProject(serializeProject(s, DEFAULT_VIEW)).spec).toEqual(s);
+    const legacy = JSON.parse(serializeProject(s, DEFAULT_VIEW));
+    legacy.view.lines = 'elbow';
+    expect(parseProject(JSON.stringify(legacy)).view).toEqual(DEFAULT_VIEW);
     expect(() => parseProject('{}')).toThrow();
     expect(() => parseProject(serializeProject(s, { ...DEFAULT_VIEW, opacity: NaN }))).toThrow();
   });

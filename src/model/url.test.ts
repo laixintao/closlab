@@ -8,7 +8,7 @@ describe('shareable URL parameters', () => {
     const spec = uniformSpec(32, 3); spec.mode = 'endpoints'; spec.targetEndpoints = 100;
     spec.planes = 8; spec.planeStart = 1;
     spec.tiers[1] = { ...spec.tiers[1], ports: 64, chipTbps: 6.4, down: 32, up: 32 };
-    const view = { ...DEFAULT_VIEW, layout: 'flat' as const, lines: 'elbow' as const, colorBy: 'plane' as const, opacity: .35 };
+    const view = { ...DEFAULT_VIEW, layout: 'flat' as const, colorBy: 'plane' as const, opacity: .35 };
     expect(projectFromQuery(projectToQuery(spec, view))).toEqual({ format: 'closlab', version: 1, spec, view });
   });
   it('builds shared hardware and balanced ports from short editable parameters', () => {
@@ -21,8 +21,10 @@ describe('shareable URL parameters', () => {
     expect(projectFromQuery(projectToQuery(spec, DEFAULT_VIEW))!.spec).toEqual(spec);
   });
   it('automatically colors planes in legacy URLs and shares terminal visibility', () => {
-    const project = projectFromQuery('?tiers=3&colorBy=tier&showEndpoints=false')!;
+    const project = projectFromQuery('?tiers=3&colorBy=tier&showEndpoints=false&lines=elbow')!;
     expect(project.view.colorBy).toBe('plane');
+    expect(project.view).not.toHaveProperty('lines');
+    expect(new URLSearchParams(projectToQuery(project.spec, project.view)).has('lines')).toBe(false);
     expect(project.view.showEndpoints).toBe(false);
     expect(projectFromQuery(projectToQuery(project.spec, project.view))).toEqual(project);
     expect(projectFromQuery('?tiers=3')!.view.showEndpoints).toBe(true);

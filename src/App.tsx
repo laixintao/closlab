@@ -241,9 +241,6 @@ export default function App() {
                 <div className="layout-select"><Box size={14} /><select aria-label={t("Topology layout")} value={view.layout} onChange={e => updateView({ layout: e.target.value as LayoutMode })}>
                   {Object.entries(LAYOUT_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
                 </select><ChevronDown size={12} /></div>
-                <div className="toolbar-divider" />
-                <div className="segmented line-select"><button className={view.lines === 'straight' ? 'active' : ''} onClick={() => updateView({ lines: 'straight' })}>{t("Straight")}</button>
-                  <button className={view.lines === 'elbow' ? 'active' : ''} onClick={() => updateView({ lines: 'elbow' })}>{t("Orthogonal")}</button></div>
                 <div className="toolbar-spacer" />
                 <form className="node-search" onSubmit={e => { e.preventDefault(); search(); }}><Search size={13} />
                   <input aria-label={t("Search nodes")} value={query} onChange={e => setQuery(e.target.value)} placeholder={t("Find node ID")} />

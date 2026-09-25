@@ -46,20 +46,6 @@ void main() {
   gl_FragColor = vec4(color, 1.0 - smoothstep(1.0 - aa, 1.0, radius));
   #include <colorspace_fragment>
 }`;
-const lineVertex = [
-  'attribute vec2 ends;', 'uniform sampler2D nodePositions;', 'uniform sampler2D linkColors;',
-  'uniform float textureSize;', 'uniform bool elbow;', 'varying vec3 vColor;', 'flat varying vec3 vPlaneColor;',
-  'vec2 uvFor(float id){ return (vec2(mod(id,textureSize),floor(id/textureSize))+0.5)/textureSize; }',
-  'void main(){',
-  'vec2 uvA=uvFor(ends.x); vec2 uvB=uvFor(ends.y);',
-  'vec3 a=texture2D(nodePositions,uvA).xyz; vec3 b=texture2D(nodePositions,uvB).xyz;',
-  'float t=position.x; vec3 p=mix(a,b,t);',
-  'if(elbow){ float mid=(a.y+b.y)*0.5; vec3 c=vec3(a.x,mid,a.z); vec3 d=vec3(b.x,mid,b.z);',
-  'if(t<0.33334) p=mix(a,c,t*3.0); else if(t<0.66667) p=mix(c,d,(t-0.3333333)*3.0); else p=mix(d,b,(t-0.6666667)*3.0); }',
-  'vColor=mix(texture2D(linkColors,uvA).rgb,texture2D(linkColors,uvB).rgb,t);',
-  'vPlaneColor=texture2D(linkColors,uvB).rgb;',
-  'gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0); }',
-].join('\n');
 const lineFragment = [
   'uniform float opacity;', 'uniform bool planeColors;', 'varying vec3 vColor;', 'flat varying vec3 vPlaneColor;',
   'void main(){',
@@ -71,7 +57,7 @@ const lineFragment = [
   '#endif',
   '#include <colorspace_fragment>', '}',
 ].join('\n');
-const straightVertex = [
+const lineVertex = [
   'attribute vec3 linkColor;', 'varying vec3 vColor;', 'flat varying vec3 vPlaneColor;',
   // Edges are ordered lower tier -> upper tier. WebGL2 flat interpolation takes
   // the final vertex, keeping one plane or Pod color along the entire link.
@@ -93,7 +79,7 @@ export class NetworkScene {
   private layoutBounds = new THREE.Box3();
   private mode: LayoutMode = 'layered';
   private fitAll2D = false;
-  private view: ViewConfig = { layout: 'layered', lines: 'straight', opacity: 0.18, colorBy: 'plane', showEndpoints: true };
+  private view: ViewConfig = { layout: 'layered', opacity: 0.18, colorBy: 'plane', showEndpoints: true };
   private filter: Filter = { tier: null, plane: null, pod: null };
   private selected: number | null = null;
   private path: number[] = [];
@@ -104,16 +90,13 @@ export class NetworkScene {
   private positionAttribute: THREE.BufferAttribute | null = null;
   private colors: Float32Array | null = null;
   private linkColors: THREE.BufferAttribute | null = null;
-  private positionTexture: THREE.DataTexture | null = null;
-  private linkColorTexture: THREE.DataTexture | null = null;
   private endpoints: THREE.Points | null = null;
   private switches: THREE.InstancedMesh | null = null;
   private links: THREE.LineSegments<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
   private guides: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null;
   private sheets: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | null = null;
   private labels: { element: HTMLSpanElement; position: THREE.Vector3; plane: number | null; pod: number | null }[] = [];
-  private straightMaterial: THREE.ShaderMaterial | null = null;
-  private elbowMaterial: THREE.ShaderMaterial | null = null;
+  private linkMaterial: THREE.ShaderMaterial | null = null;
   private visibleEdges: Uint32Array = new Uint32Array(0);
   private visible = new Uint8Array(0);
   private visibleNodeCount = 0; private visibleEdgeCount = 0;
@@ -206,9 +189,9 @@ export class NetworkScene {
     for (const resource of this.resources) resource.dispose();
     this.resources = [];
     this.graph = null; this.layout = null; this.layoutBounds.makeEmpty(); this.links = null; this.endpoints = null;
-    this.switches = null; this.straightMaterial = null; this.elbowMaterial = null;
+    this.switches = null; this.linkMaterial = null;
     this.visibleEdges = new Uint32Array(0);
-    this.positionTexture = null; this.linkColorTexture = null; this.positionAttribute = null; this.colors = null; this.linkColors = null;
+    this.positionAttribute = null; this.colors = null; this.linkColors = null;
     this.visibleNodeCount = 0; this.visibleEdgeCount = 0; this.visibleSwitches = [];
     this.dirty = true;
     this.reportStats(0);
@@ -216,10 +199,6 @@ export class NetworkScene {
   setGraph(graph: TopologyBuffers, layout: LayoutResult, view: ViewConfig) {
     this.clear(); this.graph = graph; this.layout = layout; this.view = view;
     this.selected = null; this.path = []; this.allPaths = null;
-    const size = Math.ceil(Math.sqrt(graph.nodeCount));
-    const positionData = new Float32Array(size * size * 4);
-    this.positionTexture = this.remember(new THREE.DataTexture(positionData, size, size, THREE.RGBAFormat, THREE.FloatType));
-    this.linkColorTexture = this.remember(new THREE.DataTexture(new Uint8Array(size * size * 4), size, size));
     this.colors = new Float32Array(graph.nodeCount * 3);
     this.linkColors = new THREE.BufferAttribute(new Float32Array(graph.nodeCount * 3), 3);
     this.positionAttribute = new THREE.BufferAttribute(layout.positions, 3);
@@ -251,41 +230,25 @@ export class NetworkScene {
       defines: depthLines ? { DEPTH_LINES: 1 } : {},
       transparent: !depthLines, depthWrite: depthLines, depthTest: depthLines,
     };
-    this.elbowMaterial = this.remember(new THREE.ShaderMaterial({
+    this.linkMaterial = this.remember(new THREE.ShaderMaterial({
       vertexShader: lineVertex, fragmentShader: lineFragment,
-      uniforms: {
-        nodePositions: { value: this.positionTexture }, linkColors: { value: this.linkColorTexture },
-        textureSize: { value: size }, opacity: { value: view.opacity }, elbow: { value: true },
-        planeColors: { value: view.colorBy === 'plane' },
-      },
-      ...lineSettings,
-    }));
-    this.straightMaterial = this.remember(new THREE.ShaderMaterial({
-      vertexShader: straightVertex, fragmentShader: lineFragment,
       uniforms: { opacity: { value: view.opacity }, planeColors: { value: view.colorBy === 'plane' } },
       ...lineSettings,
     }));
-    this.links = new THREE.LineSegments(lineGeometry, this.straightMaterial);
+    this.links = new THREE.LineSegments(lineGeometry, this.linkMaterial);
     this.links.frustumCulled = false; this.links.renderOrder = 0;
     this.scene.add(this.links);
 
     this.setColors(view.colorBy);
     this.setLayout(layout, view.layout);
-    this.setLineMode(view.lines);
     this.setFilter(this.filter);
   }
   setLayout(layout: LayoutResult, mode: LayoutMode) {
-    if (!this.graph || !this.positionAttribute || !this.positionTexture) return;
+    if (!this.graph || !this.positionAttribute) return;
     this.cancelBenchmark(msg("Layout changed"));
     this.layout = layout; this.mode = mode;
     this.positionAttribute.array = layout.positions; this.positionAttribute.needsUpdate = true;
     this.updateLayoutBounds();
-    const data = this.positionTexture.image.data as Float32Array;
-    for (let n = 0; n < this.graph.nodeCount; n++) {
-      data[n * 4] = layout.positions[n * 3]; data[n * 4 + 1] = layout.positions[n * 3 + 1];
-      data[n * 4 + 2] = layout.positions[n * 3 + 2]; data[n * 4 + 3] = 1;
-    }
-    this.positionTexture.needsUpdate = true;
     this.clearGuides();
     for (const label of layout.labels) {
       const element = document.createElement('span'); element.className = 'topology-label'; element.textContent = label.text;
@@ -364,57 +327,35 @@ export class NetworkScene {
   setView(view: ViewConfig) {
     const old = this.view; this.view = view;
     if (old.colorBy !== view.colorBy) this.setColors(view.colorBy);
-    if (old.lines !== view.lines) this.setLineMode(view.lines);
     if (old.showEndpoints !== view.showEndpoints) {
       this.setFilter(this.filter); this.updateLayoutBounds(); this.reset();
     }
     this.updateOpacity(); this.dirty = true;
   }
-  private setLineMode(mode: ViewConfig['lines']) {
-    if (!this.links || !this.positionAttribute || !this.linkColors || !this.straightMaterial || !this.elbowMaterial) return;
-    this.cancelBenchmark(msg("Link style changed"));
+  private updateLinks() {
+    if (!this.links || !this.positionAttribute || !this.linkColors) return;
     const oldGeometry = this.links.geometry;
     oldGeometry.dispose();
     this.resources = this.resources.filter(resource => resource !== oldGeometry);
-    if (mode === 'straight') {
-      // Indexed lines transform shared node coordinates instead of issuing millions of tiny instances.
-      const geometry = this.remember(new THREE.BufferGeometry());
-      geometry.setAttribute('position', this.positionAttribute);
-      geometry.setAttribute('linkColor', this.linkColors);
-      geometry.setIndex(new THREE.BufferAttribute(this.visibleEdges, 1));
-      geometry.setDrawRange(0, this.visibleEdges.length);
-      this.links.geometry = geometry; this.links.material = this.straightMaterial;
-    } else {
-      // Elbows expand in the vertex shader; each physical link still needs only two node IDs.
-      const geometry = this.remember(new THREE.InstancedBufferGeometry());
-      const ticks = [0, 1 / 3, 1 / 3, 2 / 3, 2 / 3, 1];
-      const values = new Float32Array(ticks.length * 3);
-      ticks.forEach((t, i) => { values[i * 3] = t; });
-      geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
-      // Uint32 attributes bind with vertexAttribIPointer, whereas the shader accepts vec2.
-      geometry.setAttribute('ends', new THREE.InstancedBufferAttribute(Float32Array.from(this.visibleEdges), 2));
-      geometry.instanceCount = this.visibleEdges.length / 2;
-      geometry.setDrawRange(0, ticks.length);
-      this.links.geometry = geometry; this.links.material = this.elbowMaterial;
-    }
+    // Indexed lines transform shared node coordinates without duplicating vertices per link.
+    const geometry = this.remember(new THREE.BufferGeometry());
+    geometry.setAttribute('position', this.positionAttribute);
+    geometry.setAttribute('linkColor', this.linkColors);
+    geometry.setIndex(new THREE.BufferAttribute(this.visibleEdges, 1));
+    geometry.setDrawRange(0, this.visibleEdges.length);
+    this.links.geometry = geometry;
     this.updateHighlights(); this.updateOpacity(); this.dirty = true;
   }
   private setColors(colorBy: ViewConfig['colorBy']) {
-    if (!this.graph || !this.colors || !this.linkColorTexture || !this.linkColors) return;
-    for (const material of [this.straightMaterial, this.elbowMaterial]) {
-      if (material) material.uniforms.planeColors.value = usesGroupColors(this.graph, colorBy);
-    }
-    const data = this.linkColorTexture.image.data as Uint8Array;
+    if (!this.graph || !this.colors || !this.linkColors) return;
+    if (this.linkMaterial) this.linkMaterial.uniforms.planeColors.value = usesGroupColors(this.graph, colorBy);
     const color = new THREE.Color();
     for (let n = 0; n < this.graph.nodeCount; n++) {
       color.set(nodeColor(this.graph, n, colorBy));
       color.toArray(this.colors, n * 3);
       color.set(connectionColor(this.graph, n, colorBy));
       this.linkColors.setXYZ(n, color.r, color.g, color.b);
-      data[n * 4] = Math.round(color.r * 255); data[n * 4 + 1] = Math.round(color.g * 255);
-      data[n * 4 + 2] = Math.round(color.b * 255); data[n * 4 + 3] = 255;
     }
-    this.linkColorTexture.needsUpdate = true;
     this.linkColors.needsUpdate = true;
     if (this.endpoints) this.endpoints.geometry.attributes.nodeColor.needsUpdate = true;
     this.updateSwitches(); this.dirty = true;
@@ -455,7 +396,7 @@ export class NetworkScene {
     this.endpoints.geometry.dispose();
     this.endpoints.geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(endpoints), 1));
     this.visibleEdges = edges;
-    this.setLineMode(this.view.lines);
+    this.updateLinks();
     this.updateSwitches(); this.updateHighlights(); this.dirty = true;
   }
   private updateSwitches() {
@@ -492,30 +433,20 @@ export class NetworkScene {
     this.clearHighlights();
     if (!this.graph || !this.layout) return;
     const edges: number[] = [], edgeColors: number[] = [], nodes = new Set<number>();
-    const fromColor = new THREE.Color(), toColor = new THREE.Color(), segmentColor = new THREE.Color();
+    const fromColor = new THREE.Color(), toColor = new THREE.Color();
     const add = (a: number, b: number) => {
       if (!this.visible[a] || !this.visible[b]) return;
       const p = this.layout!.positions;
       const av = [p[a * 3], p[a * 3 + 1], p[a * 3 + 2]];
       const bv = [p[b * 3], p[b * 3 + 1], p[b * 3 + 2]];
-      if (this.view.lines === 'elbow') {
-        const mid = (av[1] + bv[1]) / 2;
-        const c = [av[0], mid, av[2]], d = [bv[0], mid, bv[2]];
-        edges.push(...av, ...c, ...c, ...d, ...d, ...bv);
-      } else {
-        edges.push(...av, ...bv);
-      }
+      edges.push(...av, ...bv);
       fromColor.fromBufferAttribute(this.linkColors!, a); toColor.fromBufferAttribute(this.linkColors!, b);
       if (usesGroupColors(this.graph!, this.view.colorBy)) {
         // Path traversal can run either way; the upper tier still owns the link color.
         if (this.graph!.tier[a] > this.graph!.tier[b]) toColor.copy(fromColor);
         else fromColor.copy(toColor);
       }
-      const stops = this.view.lines === 'elbow' ? [0, 1 / 3, 1 / 3, 2 / 3, 2 / 3, 1] : [0, 1];
-      for (const t of stops) {
-        segmentColor.copy(fromColor).lerp(toColor, t);
-        edgeColors.push(segmentColor.r, segmentColor.g, segmentColor.b);
-      }
+      edgeColors.push(fromColor.r, fromColor.g, fromColor.b, toColor.r, toColor.g, toColor.b);
       nodes.add(a); nodes.add(b);
     };
     if (this.allPaths) {
@@ -619,8 +550,8 @@ export class NetworkScene {
   benchmark(durationMs = 30000): Promise<BenchmarkResult> {
     if (!this.graph || this.visibleNodeCount !== this.graph.nodeCount || this.visibleEdgeCount !== this.graph.edgeCount)
       return Promise.reject(new LocalizedError(msg("Clear all filters before benchmarking the full network")));
-    if (this.mode !== 'layered' || this.view.lines !== 'straight')
-      return Promise.reject(new LocalizedError(msg("Use 3D layered layout and straight links for the benchmark")));
+    if (this.mode !== 'layered')
+      return Promise.reject(new LocalizedError(msg("Use 3D layered layout for the benchmark")));
     this.cancelBenchmark(msg("A new benchmark has started"));
     this.reset();
     return new Promise((resolve, reject) => {
