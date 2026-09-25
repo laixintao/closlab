@@ -11,7 +11,7 @@ export class TopologyClient {
     };
     this.worker.onerror = event => this.rejectAll(new Error(event.message || '计算进程无法启动'));
   }
-  request<T>(kind: 'build' | 'layout' | 'path', payload: unknown): Promise<T> {
+  request<T>(kind: 'build' | 'layout' | 'path' | 'allPaths', payload: unknown): Promise<T> {
     const id = ++this.sequence;
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: resolve as (result: unknown) => void, reject });

@@ -20,6 +20,14 @@ describe('shareable URL parameters', () => {
     const spec = uniformSpec(8, 5, 1.001);
     expect(projectFromQuery(projectToQuery(spec, DEFAULT_VIEW))!.spec).toEqual(spec);
   });
+  it('automatically colors planes in legacy URLs and shares terminal visibility', () => {
+    const project = projectFromQuery('?tiers=3&colorBy=tier&showEndpoints=false')!;
+    expect(project.view.colorBy).toBe('plane');
+    expect(project.view.showEndpoints).toBe(false);
+    expect(projectFromQuery(projectToQuery(project.spec, project.view))).toEqual(project);
+    expect(projectFromQuery('?tiers=3')!.view.showEndpoints).toBe(true);
+    expect(() => projectFromQuery('?showEndpoints=invalid')).toThrow();
+  });
   it('does not treat unrelated query parameters as a network configuration', () => {
     expect(projectFromQuery('?utm_source=demo')).toBeNull();
   });

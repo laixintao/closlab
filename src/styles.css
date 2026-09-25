@@ -125,3 +125,8 @@ button{transition:background .15s,color .15s,border-color .15s}a{color:inherit;t
 .reset-view-button{display:flex;align-items:center;justify-content:center;gap:6px;flex-shrink:0;padding:5px 8px;border:1px solid #334353;border-radius:4px;color:#b8c8d6;background:#14202c;font-size:10px}
 .reset-view-button:hover{border-color:#8ba86c;color:var(--accent)}
 @media(max-width:680px){.reset-view-button{padding:5px}.reset-view-button span{display:none}.node-search{max-width:84px}.node-search input{min-width:25px}.node-search kbd{display:none}}
+
+.topology-label{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;font:10px var(--mono);padding:3px 6px;background:#0b121be6;border:1px solid currentColor;border-radius:3px;will-change:transform}
+.color-mode{color:#b5c7d8;white-space:nowrap}
+.path-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:13px}
+.path-actions .full-width{min-width:0;margin-top:0;padding:8px 6px;gap:3px}

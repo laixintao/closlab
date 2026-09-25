@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { NetworkScene } from '../render/NetworkScene';
-import type { BenchmarkResult, Filter, FrameStats, LayoutResult, TopologyBuffers, ViewConfig } from '../model/types';
+import type { BenchmarkResult, Filter, FrameStats, LayoutResult, PathSet, TopologyBuffers, ViewConfig } from '../model/types';
 
 export interface CanvasHandle {
   reset: () => void;
@@ -11,7 +11,7 @@ export interface CanvasHandle {
 }
 export const NetworkCanvas = forwardRef<CanvasHandle, {
   graph: TopologyBuffers | null; layout: LayoutResult | null; view: ViewConfig;
-  filter: Filter; selected: number | null; path: number[];
+  filter: Filter; selected: number | null; path: number[]; allPaths: PathSet | null;
   onPick: (id: number | null) => void; onStats: (stats: FrameStats) => void; onError: (message: string) => void;
 }>(function NetworkCanvas(props, ref) {
   const host = useRef<HTMLDivElement>(null), scene = useRef<NetworkScene | null>(null);
@@ -35,7 +35,7 @@ export const NetworkCanvas = forwardRef<CanvasHandle, {
   }, [props.graph, props.layout]);
   useEffect(() => { scene.current?.setView(props.view); }, [props.view]);
   useEffect(() => { scene.current?.setFilter(props.filter); }, [props.filter, props.graph]);
-  useEffect(() => { scene.current?.setSelection(props.selected, props.path); }, [props.selected, props.path, props.graph, props.layout]);
+  useEffect(() => { scene.current?.setSelection(props.selected, props.path, props.allPaths); }, [props.selected, props.path, props.allPaths, props.graph, props.layout]);
   useImperativeHandle(ref, () => ({
     reset: () => scene.current?.reset(),
     fit: () => scene.current?.reset(true),

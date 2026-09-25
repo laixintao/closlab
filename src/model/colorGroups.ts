@@ -8,7 +8,9 @@ export function identifyColorGroups(graph: Connections, spec: TopologySpec): Col
     colorGroup: Int32Array.from(graph.plane), colorGroupCount: spec.planes, colorGroupKind: 'plane',
   };
   const colorGroup = new Int32Array(graph.nodeCount).fill(-1);
-  if (spec.tiers.length < 3) return { colorGroup, colorGroupCount: 0, colorGroupKind: 'tier' };
+  if (spec.tiers.length < 3) return {
+    colorGroup: new Int32Array(graph.nodeCount), colorGroupCount: 1, colorGroupKind: 'plane',
+  };
   const queue = new Uint32Array(graph.nodeCount);
   let count = 0;
   for (let seed = 0; seed < graph.nodeCount; seed++) {

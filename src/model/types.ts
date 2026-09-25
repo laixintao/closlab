@@ -26,6 +26,7 @@ export interface ViewConfig {
   lines: LineMode;
   opacity: number;
   colorBy: 'tier' | 'plane';
+  showEndpoints: boolean;
 }
 export interface Filter {
   tier: number | null;
@@ -33,7 +34,7 @@ export interface Filter {
   pod: number | null;
 }
 export const EMPTY_FILTER: Filter = { tier: null, plane: null, pod: null };
-export const DEFAULT_VIEW: ViewConfig = { layout: 'layered', lines: 'straight', opacity: 0.18, colorBy: 'plane' };
+export const DEFAULT_VIEW: ViewConfig = { layout: 'layered', lines: 'straight', opacity: 0.18, colorBy: 'plane', showEndpoints: true };
 export const RENDER_BUDGET = { nodes: 250_000, links: 5_000_000 };
 export interface Diagnostic { field: string; message: string }
 export interface CapacitySummary {
@@ -56,7 +57,7 @@ export interface CapacitySummary {
   warnings: string[];
 }
 export interface ColorGrouping {
-  /** Display-only groups; -1 denotes shared devices. Never changes physical plane membership. */
+  /** Automatically colored and laid-out planes; -1 denotes shared devices. Physical membership is unchanged. */
   colorGroup: Int32Array;
   colorGroupCount: number;
   colorGroupKind: 'tier' | 'plane' | 'connection';
@@ -76,10 +77,23 @@ export interface TopologyBuffers extends ColorGrouping {
   adjacencyOffsets: Uint32Array;
   incidentEdges: Uint32Array;
 }
-export interface LayoutResult { positions: Float32Array; span: number; height: number }
+export interface LayoutResult {
+  positions: Float32Array; span: number; height: number;
+  /** Plane / Pod outlines are guides, not devices or physical links. */
+  guides: Float32Array;
+  guideGroups: Int32Array;
+  labels: { text: string; position: [number, number, number]; plane: number | null; pod: number | null }[];
+}
 export interface NodeInfo {
   index: number; label: string; tier: number; plane: number; pod: number;
   usedPorts: number; totalPorts: number; reservedPorts: number; neighbors: number[];
+}
+/** Union of all equal-cost shortest paths, without enumerating individual routes. */
+export interface PathSet {
+  source: number; target: number; distance: number; count: bigint;
+  nodes: Uint32Array;
+  /** Physical edge indices into TopologyBuffers.edges (one index per link). */
+  edges: Uint32Array;
 }
 export interface SavedProject {
   format: 'closlab';

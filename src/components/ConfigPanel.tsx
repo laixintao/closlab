@@ -94,7 +94,8 @@ export default function ConfigPanel({ spec, setSpec, errors, busy, dirty, onAppl
             </select><ChevronDown size={13} /></div>
           </label>
         </div>
-        <p className="field-hint">{spec.planeStart === 0 ? '每个终端接入每个平面；交换 Fabric 独立。' : '按上行选择维度划分平面；下层共享。'}</p>
+        <p className="field-hint">{spec.planes === 1 && spec.tiers.length >= 3 ? '上层独立平面自动识别、展开并着色。'
+          : spec.planeStart === 0 ? '每个终端接入每个平面；交换 Fabric 独立。' : '按上行选择维度划分平面；下层共享。'}</p>
       </section>
       <section className="config-section hardware-section">
         <div className="section-label"><Cpu size={13} /> 交换机规格</div>

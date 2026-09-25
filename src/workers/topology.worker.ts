@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { calculate, generate, shortestPath } from '../model/engine';
 import { layoutGraph } from '../model/layout';
+import { allShortestPaths } from '../model/paths';
 import type { CapacitySummary, LayoutMode, TopologyBuffers, TopologySpec } from '../model/types';
 
 let graph: TopologyBuffers | null = null, spec: TopologySpec, summary: CapacitySummary;
@@ -25,11 +26,15 @@ self.onmessage = (event: MessageEvent) => {
         adjacencyOffsets: graph.adjacencyOffsets.slice(), incidentEdges: graph.incidentEdges.slice() };
       const transfer = Object.values(copy).filter(ArrayBuffer.isView).map(a => (a as ArrayBufferView).buffer);
       self.postMessage({ id, result: { spec, summary, graph: copy, layout, elapsedMs: performance.now() - start } },
-        [...transfer, layout.positions.buffer] as ArrayBuffer[]);
+        [...transfer, layout.positions.buffer, layout.guides.buffer, layout.guideGroups.buffer] as ArrayBuffer[]);
     } else if (kind === 'layout') {
       if (!graph) throw new Error('请先生成网络');
       const result = layoutGraph(graph, spec, summary, payload.mode as LayoutMode);
-      self.postMessage({ id, result }, [result.positions.buffer]);
+      self.postMessage({ id, result }, [result.positions.buffer, result.guides.buffer, result.guideGroups.buffer]);
+    } else if (kind === 'allPaths') {
+      if (!graph) throw new Error('请先生成网络');
+      const result = allShortestPaths(graph, payload.source, payload.target);
+      self.postMessage({ id, result }, [result.nodes.buffer, result.edges.buffer]);
     } else if (kind === 'path') {
       if (!graph) throw new Error('请先生成网络');
       self.postMessage({ id, result: shortestPath(graph, payload.source, payload.target) });

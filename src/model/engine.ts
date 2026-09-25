@@ -144,6 +144,8 @@ export function generate(spec: TopologySpec, summary = calculate(spec)): Topolog
       for (let g = 0; g < groups[t]; g++) {
         for (let w = 0; w < widths[t]; w++) {
           const from = tierOffsets[t] + (r * groups[t] + g) * widths[t] + w;
+          // For T0 -> T1 this is the Pod: a ToR only reaches Fabric switches in
+          // its own Pod. Plane membership partitions the routes above that Pod.
           const upperGroup = Math.floor(g / spec.tiers[t + 1].down);
           for (let u = 0; u < spec.tiers[t].up; u++) {
             const to = tierOffsets[t + 1] + (r * groups[t + 1] + upperGroup) * widths[t + 1] + w + u * widths[t];

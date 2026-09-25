@@ -10,9 +10,9 @@ import { formatBandwidth, formatCount } from './model/format';
 import { parseProject, serializeProject } from './model/project';
 import { projectFromQuery, projectToQuery } from './model/url';
 import { DEFAULT_VIEW, EMPTY_FILTER, type BenchmarkResult, type CapacitySummary, type Diagnostic, type Filter,
-  type FrameStats, type LayoutMode, type LayoutResult, type SavedProject, type TopologyBuffers, type TopologySpec, type ViewConfig } from './model/types';
+  type FrameStats, type LayoutMode, type LayoutResult, type PathSet, type SavedProject, type TopologyBuffers, type TopologySpec, type ViewConfig } from './model/types';
 import { TopologyClient } from './workers/client';
-import { groupColor, SHARED_COLOR, TIER_COLORS, usesGroupColors } from './render/colors';
+import { groupColor, SHARED_COLOR, TIER_COLORS, usesGroupColors, usesPodColors } from './render/colors';
 
 interface Result {
   spec: TopologySpec; summary: CapacitySummary; graph: TopologyBuffers | null;
@@ -47,6 +47,7 @@ export default function App() {
   const [message, setMessage] = useState(''), [renderError, setRenderError] = useState('');
   const [urlError, setUrlError] = useState(initial.urlError ?? ''), [copied, setCopied] = useState(false);
   const [selected, setSelected] = useState<number | null>(null), [path, setPath] = useState<number[]>([]);
+  const [allPaths, setAllPaths] = useState<PathSet | null>(null), [pathBusy, setPathBusy] = useState(false);
   const [filter, setFilter] = useState<Filter>({ ...EMPTY_FILTER });
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'topology' | 'capacity'>('topology');
@@ -69,6 +70,7 @@ export default function App() {
     let cancelled = false;
     setBusy(true); setResult(null); setLayout(null); setMessage(''); setRenderError('');
     setSelected(null); setPath([]); setFilter({ ...EMPTY_FILTER }); setRotating(false); setBenchmark(null);
+    setAllPaths(null); setPathBusy(false);
     pathRequest.current++;
     worker.request<Result>('build', { spec: applied, layout: viewRef.current.layout }).then(next => {
       if (cancelled) return;
@@ -103,14 +105,15 @@ export default function App() {
   }, [help]);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setFocused(false); setSelected(null); setPath([]); pathRequest.current++; }
+      if (event.key === 'Escape') { setFocused(false); setSelected(null); setPath([]); setAllPaths(null); setPathBusy(false); pathRequest.current++; }
     };
     window.addEventListener('keydown', handleKey); return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
   const updateView = (patch: Partial<ViewConfig>) => setView(v => ({ ...v, ...patch }));
+  const clearPaths = () => { setPath([]); setAllPaths(null); setPathBusy(false); pathRequest.current++; };
   const selectNode = (id: number | null, focus = false) => {
-    setSelected(id); setPath([]); pathRequest.current++;
+    setSelected(id); clearPaths();
     if (focus && id !== null) { setFilter({ ...EMPTY_FILTER }); canvas.current?.focus(id); }
   };
   const search = () => {
@@ -119,18 +122,29 @@ export default function App() {
     if (id === null) { setMessage('未找到节点。使用 E-0、T0-0 或节点数字编号。'); return; }
     setMessage(''); selectNode(id, true);
   };
-  const showPath = async (source: string, target: string) => {
+  const showPath = async (source: string, target: string, all = false) => {
     if (!result?.graph || !client.current) return;
+    clearPaths();
     const a = findNode(result.graph, source), b = findNode(result.graph, target);
     if (a === null || b === null) { setMessage('路径端点不存在，请检查源节点与目的节点编号。'); return; }
     const request = ++pathRequest.current;
+    setPathBusy(true); setMessage('');
     try {
-      const nodes = await client.current.request<number[]>('path', { source: a, target: b });
-      if (request !== pathRequest.current) return;
-      setSelected(null); setFilter({ ...EMPTY_FILTER }); setPath(nodes);
-      setMessage(nodes.length ? '' : '两个节点之间没有可用路径。');
+      if (all) {
+        const paths = await client.current.request<PathSet>('allPaths', { source: a, target: b });
+        if (request !== pathRequest.current) return;
+        setAllPaths(paths.count > 0n ? paths : null);
+        setMessage(paths.count > 0n ? '' : '两个节点之间没有可用路径。');
+      } else {
+        const nodes = await client.current.request<number[]>('path', { source: a, target: b });
+        if (request !== pathRequest.current) return;
+        setPath(nodes); setMessage(nodes.length ? '' : '两个节点之间没有可用路径。');
+      }
+      setSelected(null); setFilter({ ...EMPTY_FILTER });
     } catch (error) {
       if (request === pathRequest.current) setMessage(error instanceof Error ? error.message : '路径计算失败');
+    } finally {
+      if (request === pathRequest.current) setPathBusy(false);
     }
   };
   const importProject = async (file?: File) => {
@@ -147,7 +161,7 @@ export default function App() {
   const runBenchmark = async () => {
     if (!canvas.current) return;
     setBenchmarkBusy(true); setBenchmark(null); setMessage('');
-    setSelected(null); setPath([]);
+    setSelected(null); clearPaths();
     try { setBenchmark(await canvas.current.benchmark()); }
     catch (error) { setMessage(error instanceof Error ? error.message : '性能测试失败'); }
     finally { setBenchmarkBusy(false); }
@@ -163,6 +177,7 @@ export default function App() {
   const groupedColors = result?.graph ? usesGroupColors(result.graph, view.colorBy) : view.colorBy === 'plane' && currentSpec.planes > 1;
   const colorGroupCount = result?.graph?.colorGroupCount ?? currentSpec.planes;
   const naturalGroups = result?.graph?.colorGroupKind === 'connection';
+  const podColors = result?.graph ? usesPodColors(result.graph) : false;
   return <div className="app">
     <header className="topbar">
       <a href="./" className="brand" aria-label="ClosLab 首页"><img src="/favicon.svg" alt="" /><strong>clos<span>lab</span></strong></a>
@@ -195,7 +210,7 @@ export default function App() {
           <div className="metric"><div><Server size={15} /><span>终端数量</span></div><strong data-testid="endpoint-count">{summary ? formatCount(summary.endpoints) : '—'}<small>ENDPOINTS</small></strong>
             <p>{summary ? '最大容量 ' + formatCount(summary.maxEndpoints) : '等待计算网络容量'}</p></div>
           <div className="metric"><div><Layers3 size={15} /><span>交换机数量</span></div><strong data-testid="switch-count">{summary ? formatCount(summary.switchCount) : '—'}<small>SWITCHES</small></strong>
-            <p>{currentSpec.tiers.length} 个交换层 · {currentSpec.planes} 个平面</p></div>
+            <p>{currentSpec.tiers.length} 个交换层 · {Math.max(1, colorGroupCount)} 个{naturalGroups ? '自动' : ''}平面</p></div>
           <div className="metric"><div><GitBranch size={15} /><span>物理连接数量</span></div><strong data-testid="link-count">{summary ? formatCount(summary.totalLinks) : '—'}<small>LINKS</small></strong>
             <p>包含终端接入与层间连接</p></div>
           <div className="metric bandwidth-metric"><div><Activity size={15} /><span>终端总注入带宽</span></div><strong data-testid="bandwidth">{summary ? formatBandwidth(summary.injectionMbps) : '—'}</strong>
@@ -226,21 +241,23 @@ export default function App() {
               </div>
               <div className="canvas-stage">
                 <NetworkCanvas ref={canvas} graph={result?.graph ?? null} layout={layout} view={view} filter={filter}
-                  selected={selected} path={path} onPick={id => selectNode(id)} onStats={setStats} onError={setRenderError} />
-                <div className="canvas-top-label"><span className="status-dot" /><span>{hasFilter ? '筛选视图' : '全量拓扑'}</span>
-                  <span className="canvas-label-divider" />{currentSpec.tiers.length}-TIER · {currentSpec.planes} PLANE{currentSpec.planes > 1 ? 'S' : ''}
+                  selected={selected} path={path} allPaths={allPaths} onPick={id => selectNode(id)} onStats={setStats} onError={setRenderError} />
+                <div className="canvas-top-label"><span className="status-dot" /><span>{hasFilter || !view.showEndpoints ? '筛选视图' : '全量拓扑'}</span>
+                  <span className="canvas-label-divider" />{currentSpec.tiers.length}-TIER · {Math.max(1, colorGroupCount)} PLANE{colorGroupCount > 1 ? 'S' : ''}{naturalGroups ? ' · 自动识别' : ''}
                   {(result?.graph?.edgeCount ?? 0) > 100000 && <span>· 深度遮挡</span>}</div>
                 {view.layout === 'flat' && <div className="pan-hint">滚轮缩放 · 右键拖动平移</div>}
                 <div className="canvas-legend">{!groupedColors
                   ? ['终端', ...currentSpec.tiers.map((_, i) => 'T' + i)].map((label, i) =>
                     <span key={label}><i style={{ background: TIER_COLORS[i] }} />{label}</span>)
-                  : <><span><i style={{ background: SHARED_COLOR }} />共享</span>
+                  : <>{(currentSpec.planes > 1 || currentSpec.tiers.length > 2) && <span><i style={{ background: SHARED_COLOR }} />共享</span>}
                     {Array.from({ length: Math.min(colorGroupCount, 8) }, (_, i) =>
-                      <span key={i}><i style={{ background: groupColor(i) }} />{naturalGroups ? 'G' : 'P'}{i}</span>)}
-                    <span>{naturalGroups ? `${colorGroupCount} 个连接分组` : `共 ${colorGroupCount} 平面`}</span></>}</div>
+                      <span key={i}><i style={{ background: groupColor(i) }} />P{i}</span>)}
+                    <span>{naturalGroups ? `${colorGroupCount} 个自动平面` : `共 ${colorGroupCount} 平面`}</span>
+                    {podColors && <span>Fabric 按 Pod · Spine / 连线按平面</span>}</>}</div>
                 <div className="canvas-settings">
-                  <label>着色<select aria-label="着色方式" value={view.colorBy} onChange={e => updateView({ colorBy: e.target.value as ViewConfig['colorBy'] })}>
-                    <option value="plane">按连接分组</option><option value="tier">按层级</option></select></label>
+                  <div className="color-mode" data-testid="color-mode">{podColors ? 'Pod / 平面颜色 · 自动' : groupedColors ? '平面颜色 · 自动' : '层级颜色 · 自动'}</div>
+                  <label>显示终端<input aria-label="显示终端" type="checkbox" checked={view.showEndpoints}
+                    onChange={e => { updateView({ showEndpoints: e.target.checked }); selectNode(null); }} /></label>
                   <label className="opacity-control">线条强度<input aria-label="线条强度" type="range" min="0.01" max="0.8" step="0.01"
                     value={view.opacity} onChange={e => updateView({ opacity: Number(e.target.value) })} /></label>
                 </div>
@@ -258,8 +275,9 @@ export default function App() {
                 {selected !== null && result?.graph && <div className="selection-chip"><MousePointer2 size={12} />{nodeLabel(result.graph, selected)}
                   <span>· {result.graph.adjacencyOffsets[selected + 1] - result.graph.adjacencyOffsets[selected]} 条直连链路</span>
                   <button aria-label="清除选择" onClick={() => selectNode(null)}><X size={12} /></button></div>}
-                {path.length > 0 && <div className="selection-chip"><GitBranch size={12} />已显示路径 · {path.length - 1} 条链路
-                  <button aria-label="清除路径" onClick={() => setPath([])}><X size={12} /></button></div>}
+                {(path.length > 0 || allPaths) && <div className="selection-chip"><GitBranch size={12} />
+                  {allPaths ? `全部最短路径 · ${formatCount(allPaths.count)} 条 · 每条 ${allPaths.distance} 跳` : `已显示路径 · ${path.length - 1} 条链路`}
+                  <button aria-label="清除路径" onClick={clearPaths}><X size={12} /></button></div>}
                 {(busy || layoutBusy) && <div className="canvas-progress"><LoaderCircle className="spin" size={16} />{busy ? '正在构建网络' : '正在计算布局'}<small>保持每一个节点与每一条连接</small></div>}
                 {!busy && summary && !summary.canRender && <div className="canvas-empty"><Layers3 size={32} /><h2>容量已计算，规模超出渲染预算</h2>
                   <p>{formatCount(summary.totalNodes)} 个节点 · {formatCount(summary.totalLinks)} 条链路</p><span>切换到目标规划，减少终端数量后生成全量网络。</span></div>}
@@ -295,7 +313,8 @@ export default function App() {
             </div>}
           </section>
           <Inspector spec={currentSpec} summary={summary ?? null} graph={result?.graph ?? null} colorBy={view.colorBy} selected={selected} onSelect={selectNode}
-            filter={filter} setFilter={setFilter} path={path} onPath={(a, b) => void showPath(a, b)} />
+            filter={filter} setFilter={setFilter} path={path} allPaths={allPaths} pathBusy={pathBusy}
+            onPath={(a, b, all) => void showPath(a, b, all)} onClearPath={clearPaths} />
         </div>
       </section>
     </main>
@@ -313,7 +332,7 @@ export default function App() {
         <p>Breakout 后每条独立点到点连接计一条链路，不进一步推算光模块、光纤芯数或扇出线缆组件数量。</p>
         <h3>全量可视化</h3><p>支持 25 万总节点、500 万条链路以内的全量展开。所有终端和链路都提交到 GPU；远处重叠不会改变数量。仅用户主动筛选会减少显示对象，画布底部始终显示当前绘制数量。超出预算仍可查看精确容量统计。</p>
         <p>超过 10 万条链路时，连线使用标准深度遮挡，并以颜色强度代替透明叠加，减少重复绘制的开销。节点在独立深度阶段绘制，保持可见与可选；链路仍全量提交，没有抽样。</p>
-        <p>3D 分层、平面展开、2D 分层与径向布局共享同一张图。节点 ID 为 E-0、T0-0 等；点击节点查看邻接关系，或输入 ID 搜索定位。路径探索返回一条最短物理路径。</p>
+        <p>3D 分层、平面展开、2D 分层与径向布局共享同一张图。节点 ID 为 E-0、T0-0 等；点击节点查看邻接关系，或输入 ID 搜索定位。路径探索支持查看一条最短路径，或显示全部等长最短路径（ECMP）；共享链路合并高亮，结果显示准确的路径总数。</p>
         <h3>参考与边界</h3><p>首版不模拟拥塞控制、发包或论文性能。F16 和 MRC 只作为通用规则的覆盖验证，未针对案例编写专用生成器。</p>
         <div className="reference-links"><a href="https://engineering.fb.com/2019/03/14/data-center-engineering/f16-minipack/" target="_blank" rel="noreferrer">Meta F16 / Minipack ↗</a>
           <a href="https://cdn.openai.com/pdf/resilient-ai-supercomputer-networking-using-mrc-and-srv6.pdf" target="_blank" rel="noreferrer">MRC & SRv6 论文 ↗</a></div>

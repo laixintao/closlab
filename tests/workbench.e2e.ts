@@ -33,7 +33,7 @@ test('default graph draws real nodes and links without browser errors', async ({
   await expect(page.getByTestId('switch-count')).toContainText('48');
   await expect(page.getByTestId('link-count')).toContainText('1,024');
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1024');
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '3');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
   const input = await page.getByRole('region', { name: '网络输入', exact: true }).boundingBox();
   const results = await page.getByRole('region', { name: '计算结果', exact: true }).boundingBox();
   expect(input!.y + input!.height).toBeLessThan(results!.y);
@@ -65,7 +65,6 @@ test('four layouts and elbow segments preserve the physical graph', async ({ pag
   await importSpec(page, spec);
   await ready(page);
   await page.getByLabel('拓扑布局', { exact: true }).selectOption('planes');
-  await page.getByLabel('着色方式', { exact: true }).selectOption('plane');
   await page.getByRole('button', { name: '专注模式', exact: true }).click();
   await page.screenshot({ path: info.outputPath('shared-leaf-plane-colors.png') });
   await page.getByRole('button', { name: '折线', exact: true }).click();
@@ -76,30 +75,108 @@ test('four layouts and elbow segments preserve the physical graph', async ({ pag
   await page.screenshot({ path: info.outputPath('shared-leaf-plane-rows-2d.png') });
 });
 test('single-plane three-tier networks expose connectivity groups in both line modes', async ({ page }, info) => {
-  await page.goto('/?ports=8&tiers=3&planes=1');
+  await page.goto('/?ports=8&tiers=3&planes=1&colorBy=tier');
   await ready(page, 208, 384);
-  await expect(page.getByLabel('着色方式', { exact: true })).toHaveValue('plane');
-  await expect(page.locator('.canvas-legend')).toContainText('4 个连接分组');
-  for (const [node, group] of [['T1-0', 'G0'], ['T1-4', 'G0'], ['T2-0', 'G0'], ['T1-1', 'G1'], ['T0-0', '各组共享']]) {
+  await expect(page.getByTestId('color-mode')).toContainText('自动');
+  await expect(page.locator('.canvas-legend')).toContainText('4 个自动平面');
+  for (const [node, group] of [['T1-0', 'P0'], ['T1-4', 'P0'], ['T2-0', 'P0'], ['T1-1', 'P1'], ['T0-0', '所有平面共享']]) {
     await page.getByLabel('搜索节点', { exact: true }).fill(node);
     await page.getByLabel('搜索节点', { exact: true }).press('Enter');
     await expect(page.getByRole('heading', { name: node, exact: true })).toBeVisible();
-    await expect(page.locator('.node-inspector .detail-list > div').filter({ hasText: '连接分组' })).toContainText(group);
+    await expect(page.locator('.node-inspector .detail-list > div').filter({ hasText: '所属平面' })).toContainText(group);
   }
   await page.getByRole('button', { name: '清除选择', exact: true }).click();
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '3');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
   await page.screenshot({ path: info.outputPath('implicit-groups-straight.png') });
   await page.getByRole('button', { name: '折线', exact: true }).click();
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '1152');
   await page.screenshot({ path: info.outputPath('implicit-groups-elbow.png') });
   await page.reload();
   await ready(page, 208, 384);
-  await expect(page.locator('.canvas-legend')).toContainText('4 个连接分组');
-  await page.getByLabel('着色方式', { exact: true }).selectOption('tier');
-  await expect(page.locator('.canvas-legend')).toContainText('T2');
-  await expect(page.locator('.canvas-legend')).not.toContainText('连接分组');
+  await expect(page.locator('.canvas-legend')).toContainText('4 个自动平面');
+  await page.getByLabel('显示终端', { exact: true }).uncheck();
+  await ready(page, 80, 256);
+  await expect(page.getByTestId('endpoint-count')).toContainText('128');
+  await page.reload();
+  await ready(page, 80, 256);
+  await page.getByLabel('筛选平面', { exact: true }).selectOption('1');
+  await ready(page, 44, 64);
+  await page.getByLabel('筛选平面', { exact: true }).selectOption('all');
+  await page.getByLabel('显示终端', { exact: true }).check();
   await ready(page, 208, 384);
+});
+test('shows the reference arrangement with four automatic planes and four perpendicular Pods', async ({ page }, info) => {
+  await page.goto('/?tiers=3&ports=128&chipTbps=12.8&portGbps=100&t0.ports=32&t0.chipTbps=3.2&t0.down=16&t0.up=4&t0.reserved=12&t1.down=48&t1.up=48&t1.reserved=32&t2.down=48&t2.reserved=80&mode=endpoints&endpoints=3072&layout=planes&showEndpoints=false&opacity=0.12');
+  await ready(page, 400, 1536);
+  await expect(page.locator('.canvas-legend')).toContainText('4 个自动平面');
+  await expect(page.getByTestId('switch-count')).toContainText('400');
+  await page.getByRole('button', { name: '专注模式', exact: true }).click();
+  await expect(page.locator('.topology-label').filter({ hasText: /^Pod / })).toHaveCount(4);
+  await expect(page.locator('.topology-label').filter({ hasText: /^Plane / })).toHaveCount(4);
+  await page.screenshot({ path: info.outputPath('reference-four-planes.png') });
+});
+test('F16 Pod and plane filters isolate the corresponding ToRs and Fabric switches', async ({ page }, info) => {
+  await page.goto('/?tiers=3&ports=128&chipTbps=12.8&portGbps=100&t0.ports=32&t0.chipTbps=3.2&t0.down=16&t0.up=16&t2.down=64&t2.reserved=64&mode=capacity&planes=16&planeStart=1&layout=planes&showEndpoints=false');
+  await ready(page, 6144, 131072);
+  await expect(page.locator('.topology-label').filter({ hasText: /^Pod / })).toHaveCount(64);
+  await expect(page.locator('.composition-list > div').filter({ hasText: 'T1' })).toContainText('1,024');
+  await expect(page.locator('.composition-list > div').filter({ hasText: 'T2' })).toContainText('1,024');
+  await expect(page.locator('.canvas-legend')).toContainText('Fabric 按 Pod');
+  const fabricColors: string[] = [];
+  for (const node of ['T1-0', 'T1-15', 'T1-16']) {
+    await page.getByLabel('搜索节点', { exact: true }).fill(node);
+    await page.getByLabel('搜索节点', { exact: true }).press('Enter');
+    await expect(page.getByRole('heading', { name: node, exact: true })).toBeVisible();
+    fabricColors.push(await page.locator('.node-title > span').evaluate(el => getComputedStyle(el).backgroundColor));
+  }
+  expect(fabricColors[0]).toBe(fabricColors[1]);
+  expect(fabricColors[0]).not.toBe(fabricColors[2]);
+  await page.getByRole('button', { name: '清除选择', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+  await page.getByLabel('筛选 Pod', { exact: true }).fill('0');
+  await ready(page, 1104, 2048);
+  await page.screenshot({ path: info.outputPath('f16-pod-colors-straight.png') });
+  await page.getByRole('button', { name: '折线', exact: true }).click();
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '6144');
+  await page.screenshot({ path: info.outputPath('f16-pod-colors-elbow.png') });
+  await page.getByRole('button', { name: '直线', exact: true }).click();
+  await page.getByLabel('筛选平面', { exact: true }).selectOption('0');
+  await ready(page, 129, 128);
+  await page.getByRole('button', { name: '清除筛选', exact: true }).click();
+  await ready(page, 6144, 131072);
+  await page.getByRole('button', { name: '专注模式', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('f16-pods-and-planes.png') });
+});
+test('highlights all ECMP routes, switches line modes, and clears results', async ({ page }, info) => {
+  await page.goto('/?ports=8&tiers=3&layout=planes&showEndpoints=false');
+  await ready(page, 80, 256);
+  await page.getByLabel('源节点', { exact: true }).fill('T0-0');
+  await page.getByLabel('目的节点', { exact: true }).fill('T0-4');
+  await page.getByRole('button', { name: '显示所有路径', exact: true }).click();
+  await expect(page.getByTestId('all-paths-result')).toContainText('16 条等长最短路径 · 每条 4 跳');
+  await expect(page.getByTestId('all-paths-result')).toContainText('26 个节点、40 条不同链路');
+  await expect(page.locator('.selection-chip')).toContainText('全部最短路径 · 16 条');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '6');
+  await page.screenshot({ path: info.outputPath('all-ecmp-paths.png') });
+  await page.getByRole('button', { name: '折线', exact: true }).click();
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-segments', '768');
+  await expect(page.getByTestId('all-paths-result')).toBeVisible();
+  await page.getByRole('button', { name: '清除路径', exact: true }).click();
+  await expect(page.getByTestId('all-paths-result')).toHaveCount(0);
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
+  await page.getByRole('button', { name: '查看最短路径', exact: true }).click();
+  await expect(page.locator('.path-result')).toContainText('4 条链路');
+  await page.getByRole('button', { name: '显示所有路径', exact: true }).click();
+  await expect(page.getByTestId('all-paths-result')).toBeVisible();
+  await page.getByLabel('目的节点', { exact: true }).fill('T0-0');
+  await expect(page.getByTestId('all-paths-result')).toHaveCount(0);
+  await page.getByRole('button', { name: '显示所有路径', exact: true }).click();
+  await expect(page.getByTestId('all-paths-result')).toContainText('1 条等长最短路径 · 每条 0 跳');
+  await page.getByLabel('目的节点', { exact: true }).fill('T0-999999');
+  await page.getByRole('button', { name: '显示所有路径', exact: true }).click();
+  await expect(page.getByText('路径端点不存在，请检查源节点与目的节点编号。', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('all-paths-result')).toHaveCount(0);
 });
 test('plans a partial network, finds paths, searches and picks a GPU-rendered node', async ({ page }) => {
   await page.getByRole('button', { name: '目标规划', exact: true }).click();
@@ -139,13 +216,13 @@ test('selects the nearest switch from empty space and highlights every direct co
   await canvas.click({ position: { x: box!.width / 2 + 55, y: box!.height / 2 } });
   await expect(page.getByRole('heading', { name: 'T0-0', exact: true })).toBeVisible();
   await expect(page.locator('.selection-chip')).toContainText('32 条直连链路');
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '5');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '6');
   await ready(page);
   await page.screenshot({ path: info.outputPath('selected-switch.png'), fullPage: true });
   await page.getByRole('button', { name: 'Reset view', exact: true }).click();
   await expect(page.locator('.selection-chip')).toContainText('32 条直连链路');
   await page.getByRole('button', { name: '清除选择', exact: true }).click();
-  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '3');
+  await expect(page.getByTestId('render-status')).toHaveAttribute('data-draw-calls', '4');
 });
 test('builds 100,000 terminals through ordinary parameter controls and draws every link', async ({ page }, info) => {
   await page.getByRole('button', { name: '目标规划', exact: true }).click();
@@ -161,7 +238,6 @@ test('builds 100,000 terminals through ordinary parameter controls and draws eve
   await expect(page.getByTestId('switch-count')).toContainText('5,176');
   await page.getByLabel('拓扑布局', { exact: true }).selectOption('planes');
   await ready(page, 105176, 1600768);
-  await page.getByLabel('着色方式', { exact: true }).selectOption('plane');
   await page.screenshot({ path: info.outputPath('100k-multiplane.png'), fullPage: true });
   await page.getByLabel('筛选平面', { exact: true }).selectOption('3');
   await ready(page, 100647, 200096);
@@ -221,7 +297,6 @@ test('shares applied parameters and restores the network independently of local 
   await page.getByRole('button', { name: '生成网络', exact: true }).click();
   await ready(page, 123, 212);
   await page.getByLabel('拓扑布局', { exact: true }).selectOption('flat');
-  await page.getByLabel('着色方式', { exact: true }).selectOption('plane');
   await expect(page).toHaveURL(/layout=flat/);
   const shared = page.url();
   expect(new URL(shared).searchParams.get('endpoints')).toBe('100');
@@ -234,7 +309,7 @@ test('shares applied parameters and restores the network independently of local 
   await page.goto(shared);
   await ready(page, 123, 212);
   await expect(page.getByLabel('拓扑布局', { exact: true })).toHaveValue('flat');
-  await expect(page.getByLabel('着色方式', { exact: true })).toHaveValue('plane');
+  await expect(page.getByTestId('color-mode')).toContainText('自动');
   await page.reload();
   await ready(page, 123, 212);
   await page.goto('/?tiers=999');

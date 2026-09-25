@@ -17,5 +17,8 @@ export function parseProject(text: string): SavedProject {
       !['straight', 'elbow'].includes(v.lines) || !['tier', 'plane'].includes(v.colorBy) ||
       typeof v.opacity !== 'number' || !Number.isFinite(v.opacity) || v.opacity < 0.01 || v.opacity > 0.8)
     throw new Error('可视化配置无效');
-  return { format: 'closlab', version: 1, spec: project.spec, view: v };
+  if (v.showEndpoints !== undefined && typeof v.showEndpoints !== 'boolean') throw new Error('终端显示配置无效');
+  // Legacy colorBy=tier links also use automatic plane colors now.
+  return { format: 'closlab', version: 1, spec: project.spec,
+    view: { ...v, colorBy: 'plane', showEndpoints: v.showEndpoints ?? true } };
 }

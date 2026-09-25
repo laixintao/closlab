@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { uniformSpec } from './defaults';
 import { generate, nodeInfo } from './engine';
 import { identifyColorGroups } from './colorGroups';
-import { groupColor, nodeColor, SHARED_COLOR, TIER_COLORS, usesGroupColors } from '../render/colors';
+import { connectionColor, groupColor, nodeColor, SHARED_COLOR, usesGroupColors, usesPodColors } from '../render/colors';
 
 describe('colors follow actual upper-tier connectivity', () => {
   it('groups cross-Pod Spines with their shared Super-Spines, while Leaf stays shared', () => {
@@ -17,7 +17,7 @@ describe('colors follow actual upper-tier connectivity', () => {
     for (let id = top; id < graph.nodeCount; id++) {
       const neighbors = nodeInfo(graph, spec, id).neighbors;
       expect(new Set(neighbors.map(n => graph.colorGroup[n]))).toEqual(new Set([graph.colorGroup[id]]));
-      for (const n of neighbors) expect(nodeColor(graph, n, 'plane')).toBe(nodeColor(graph, id, 'plane'));
+      for (const n of neighbors) expect(connectionColor(graph, n, 'plane')).toBe(connectionColor(graph, id, 'plane'));
     }
     expect(nodeInfo(graph, spec, spine).neighbors.filter(n => graph.tier[n] === 2).length).toBe(4);
     for (let id = 0; id < spine; id++) {
@@ -25,8 +25,32 @@ describe('colors follow actual upper-tier connectivity', () => {
       expect(nodeColor(graph, id, 'plane')).toBe(SHARED_COLOR);
     }
     expect(usesGroupColors(graph, 'plane')).toBe(true);
-    expect(usesGroupColors(graph, 'tier')).toBe(false);
-    expect(nodeColor(graph, spine, 'tier')).toBe(TIER_COLORS[2]);
+    expect(usesGroupColors(graph, 'tier')).toBe(true);
+    expect(nodeColor(graph, spine, 'tier')).toBe(nodeColor(graph, spine, 'plane'));
+  });
+
+  it.each([1, 4])('colors Fabric nodes by Pod independently of %i configured planes and their links', planes => {
+    const spec = uniformSpec(8, 3); spec.planes = planes; spec.planeStart = 1;
+    const graph = generate(spec);
+    expect(usesPodColors(graph)).toBe(true);
+    const colorsByPod = new Map<number, Set<string>>();
+    for (let id = graph.tierOffsets[1]; id < graph.tierOffsets[2]; id++) {
+      const pod = graph.pod[id];
+      if (!colorsByPod.has(pod)) colorsByPod.set(pod, new Set());
+      colorsByPod.get(pod)!.add(nodeColor(graph, id, 'plane'));
+      expect(connectionColor(graph, id, 'plane')).toBe(groupColor(graph.colorGroup[id]));
+    }
+    for (const colors of colorsByPod.values()) expect(colors.size).toBe(1);
+    expect(new Set([...colorsByPod.values()].flatMap(colors => [...colors])).size).toBe(colorsByPod.size);
+    // Two Fabrics within one Pod have the same device color, but different plane links.
+    const a = graph.tierOffsets[1], b = a + 1;
+    expect(nodeColor(graph, a, 'plane')).toBe(nodeColor(graph, b, 'plane'));
+    expect(connectionColor(graph, a, 'plane')).not.toBe(connectionColor(graph, b, 'plane'));
+    for (let id = graph.tierOffsets[2]; id < graph.nodeCount; id++)
+      expect(nodeColor(graph, id, 'plane')).toBe(connectionColor(graph, id, 'plane'));
+    // Pod numbering in replicated whole fabrics is local to each copy.
+    spec.planes = 4; spec.planeStart = 0;
+    expect(usesPodColors(generate(spec))).toBe(false);
   });
 
   it('leaves topology untouched and preserves explicit plane grouping', () => {
@@ -58,11 +82,13 @@ describe('colors follow actual upper-tier connectivity', () => {
     expect(identifyColorGroups(reordered, spec).colorGroup).toEqual(graph.colorGroup);
   });
 
-  it('keeps the simple two-tier default colored by tier and avoids an eight-group color cycle', () => {
+  it('colors the two-tier default as one plane and avoids an eight-group color cycle', () => {
     const graph = generate(uniformSpec());
-    expect(graph.colorGroupKind).toBe('tier');
-    expect(usesGroupColors(graph, 'plane')).toBe(false);
-    expect(nodeColor(graph, graph.tierOffsets[0], 'plane')).toBe(TIER_COLORS[1]);
+    expect(graph.colorGroupKind).toBe('plane');
+    expect(graph.colorGroupCount).toBe(1);
+    expect(new Set(graph.colorGroup)).toEqual(new Set([0]));
+    expect(usesGroupColors(graph, 'plane')).toBe(true);
+    expect(nodeColor(graph, graph.tierOffsets[0], 'plane')).toBe(groupColor(0));
     expect(new Set(Array.from({ length: 32 }, (_, id) => groupColor(id))).size).toBe(32);
   });
 });

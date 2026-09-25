@@ -6,7 +6,7 @@ import { DEFAULT_VIEW, type SavedProject, type SwitchProfile, type TopologySpec,
 const hardware = ['ports', 'breakout', 'chipTbps', 'portGbps'] as const;
 const allocation = ['down', 'up', 'reserved'] as const;
 const keys = new Set(['v', 'mode', 'endpoints', 'bandwidth', 'planes', 'planeStart', 'tiers', ...hardware,
-  'layout', 'lines', 'colorBy', 'opacity']);
+  'layout', 'lines', 'colorBy', 'opacity', 'showEndpoints']);
 const isProjectKey = (key: string) => keys.has(key) || /^t\d+\./.test(key);
 
 /** A self-contained, editable query string. Never serialize an unapplied draft. */
@@ -62,7 +62,10 @@ export function projectFromQuery(search: string): SavedProject | null {
     lines: (params.get('lines') ?? DEFAULT_VIEW.lines) as ViewConfig['lines'],
     colorBy: (params.get('colorBy') ?? DEFAULT_VIEW.colorBy) as ViewConfig['colorBy'],
     opacity: number('opacity', DEFAULT_VIEW.opacity),
+    showEndpoints: params.get('showEndpoints') === 'false' ? false : true,
   };
+  if (params.has('showEndpoints') && !['true', 'false'].includes(params.get('showEndpoints')!))
+    throw new Error('showEndpoints 必须为 true 或 false');
   const project = parseProject(serializeProject(spec, view));
   calculate(project.spec);
   return project;
