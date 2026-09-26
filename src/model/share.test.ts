@@ -24,3 +24,15 @@ it('escapes iframe attribute contents', () => {
   expect(markup).toContain('src="https://example.com/?a=1&amp;b=&quot;&lt;tag&gt;&quot;"');
   expect(markup).not.toContain('<tag>');
 });
+
+it('exports pixel and percentage widths with a custom pixel height', () => {
+  const fixed = iframeMarkup('https://clos.example/', { width: 960, widthUnit: 'px', height: 640 });
+  expect(fixed).toContain('width="960"');
+  expect(fixed).toContain('height="640"');
+  const fluid = iframeMarkup('https://clos.example/', { width: 75, widthUnit: '%', height: 480 });
+  expect(fluid).toContain('width="75%"');
+  expect(fluid).toContain('height="480"');
+  expect(() => iframeMarkup('https://clos.example/', { width: 0, widthUnit: 'px', height: 560 })).toThrow();
+  expect(() => iframeMarkup('https://clos.example/', { width: 101, widthUnit: '%', height: 560 })).toThrow();
+  expect(() => iframeMarkup('https://clos.example/', { width: 800, widthUnit: 'px', height: NaN })).toThrow();
+});

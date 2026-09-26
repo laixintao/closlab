@@ -68,10 +68,63 @@ test('copies an applied, read-only iframe and renders it on another website', as
     await expect(embedded.locator('input, select, textarea')).toHaveCount(0);
     await expect(embedded.getByTestId('bandwidth')).toHaveText('12.8 Tbps');
     await blog.screenshot({ path: info.outputPath('blog-embed.png') });
+    const home = embedded.getByRole('link', { name: 'ClosLab home' });
+    await expect(home).toHaveAttribute('href', new URL('/', src).href);
+    await expect(home).toHaveAttribute('target', '_blank');
+    const newTab = context.waitForEvent('page');
+    await home.click();
+    const homepage = await newTab;
+    await expect(homepage.getByRole('button', { name: 'Generate network', exact: true })).toBeVisible();
+    expect(await homepage.evaluate(() => window.opener)).toBeNull();
+    await ready(embedded, 80, 256);
+    await homepage.close();
   } finally {
     await blog.close();
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+test('iframe dimensions control copied markup and the live viewport without reloading it', async ({ page, context }, info) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto(example);
+  await ready(page, 80, 256);
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
+  const preview = page.frameLocator('.share-preview iframe');
+  await ready(preview, 80, 256);
+  await preview.getByTestId('network-canvas').click({ position: { x: 180, y: 120 } });
+  await page.getByLabel('Width unit', { exact: true }).selectOption('px');
+  await page.getByLabel('iframe width', { exact: true }).fill('960');
+  await page.getByLabel('iframe height', { exact: true }).fill('640');
+  await expect.poll(() => preview.getByTestId('embed-preview').evaluate(() => [innerWidth, innerHeight])).toEqual([960, 640]);
+  await expect(preview.getByRole('button', { name: 'Clear selection' })).toBeVisible();
+  await page.getByRole('button', { name: 'Copy iframe', exact: true }).click();
+  const code = await page.evaluate(() => navigator.clipboard.readText());
+  expect(code).toContain('width="960"'); expect(code).toContain('height="640"');
+  const frameBox = await page.locator('.share-preview iframe').boundingBox();
+  const viewport = await page.locator('.share-preview-viewport').boundingBox();
+  expect(frameBox!.width).toBeLessThanOrEqual(viewport!.width);
+  expect(frameBox!.height).toBeLessThanOrEqual(viewport!.height);
+  await page.screenshot({ path: info.outputPath('custom-iframe-size.png') });
+
+  await page.getByLabel('Width unit', { exact: true }).selectOption('%');
+  await page.getByLabel('iframe width', { exact: true }).fill('75');
+  await page.getByLabel('iframe height', { exact: true }).fill('480');
+  const available = await page.locator('.share-preview-viewport').evaluate(el => el.clientWidth);
+  await expect.poll(async () => Math.abs(await preview.getByTestId('embed-preview').evaluate(() => innerWidth) - available * .75)).toBeLessThanOrEqual(1);
+  await expect.poll(() => preview.getByTestId('embed-preview').evaluate(() => innerHeight)).toBe(480);
+  await page.getByRole('button', { name: 'Copy iframe', exact: true }).click();
+  const fluidCode = await page.evaluate(() => navigator.clipboard.readText());
+  expect(fluidCode).toContain('width="75%"'); expect(fluidCode).toContain('height="480"');
+  await page.getByLabel('iframe width', { exact: true }).fill('101');
+  await expect(page.getByRole('button', { name: 'Copy iframe', exact: true })).toBeDisabled();
+  await expect(page.getByRole('alert')).toContainText('width 1–100');
+  await ready(preview, 80, 256);
+  await page.getByLabel('iframe width', { exact: true }).fill('100');
+  await page.getByLabel('iframe height', { exact: true }).fill('');
+  await expect(page.getByRole('button', { name: 'Copy iframe', exact: true })).toBeDisabled();
+  await page.getByLabel('iframe height', { exact: true }).fill('560');
+  await expect(page.getByRole('button', { name: 'Copy iframe', exact: true })).toBeEnabled();
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('embedded previews do not inherit or overwrite local projects and language preferences', async ({ page }) => {

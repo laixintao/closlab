@@ -26,6 +26,29 @@ npm run preview
 
 生产文件位于 **dist/**，可部署到静态服务器的根路径。
 
+## 版本发布
+
+发布命令使用 [bump2version](https://github.com/c4urself/bump2version) 提供的 `bumpversion` CLI。首次安装固定版本的发布工具：
+
+```bash
+uv tool install bump2version==1.0.1
+```
+
+也可以运行 `python3 -m venv .venv-release` 创建虚拟环境，用 `source .venv-release/bin/activate` 激活，再执行 `python -m pip install -r requirements-release.txt`。Python 仅用于发布，日常开发和构建不需要。
+
+先提交代码，确保处于干净的 `main` 分支，再选择升级类型：
+
+```bash
+npm run release:patch -- --dry-run  # 预览下一个版本，不修改文件
+npm run release:patch              # 修复版本
+# npm run release:minor            # 新功能版本
+# npm run release:major            # 不兼容变更
+```
+
+命令先执行测试和生产构建，再通过 `.bumpversion.cfg` 更新 `package.json`，同步 `package-lock.json` 中两处项目版本，生成 `Release vX.Y.Z` 提交和带注释的 `vX.Y.Z` 标签。锁文件中的依赖版本保持不变。请使用这些 npm 命令，而不是直接执行 `bumpversion`，确保锁文件、提交与标签一起更新。`npm run release:check` 检查版本一致性，每次构建前也会自动执行；`npm run test:release` 会在临时仓库中验证发布流程。
+
+命令完成后会输出推送命令，例如 `git push --atomic origin main v0.1.1`，将版本提交与对应标签一起推送。创建本地版本不会自动推送或部署。现有 Cloudflare 流程仍由 `main` 推送触发部署，标签用于标识发布版本，不改变按分支部署的行为。
+
 ## 部署到 Cloudflare Pages
 
 ClosLab 构建后是静态网站，Pages 直接托管 `dist/` 即可。计算和 Web Worker 均在访问者的浏览器中运行，无需 Pages Functions、数据库或运行时密钥。
@@ -113,6 +136,8 @@ Direct Upload 项目无法直接转换为 Git 集成项目；如需后续自动�
 平面颜色与几何布局均自动生成。未显式分平面的 3–5 tier 拓扑，会移除共享 Leaf 层后按上层实际连通分量识别平面；显式多平面配置使用配置的平面分组。3D 中每个平面是独立的竖直面、每层一行；三层网络的共享 ToR 按 Pod 横排，同一 Pod 的 Fabric Switch 位于这些横排上方。平面及 Pod 边框、Plane / Pod 编号都是辅助标注，不计入设备和物理链路；规模较大时每类最多标注前 64 个，全部设备和链路仍照常渲染。2D 中自动平面同样横向平铺。Pod 布局下，下方每个 Pod 的 ToR、Fabric、ToR–Fabric 连线、边框及标签统一使用 Pod 颜色；上方 Fabric–Spine 连线、Spine 和平面边框保持网络平面颜色，终端保持中性色。平面筛选与节点详情使用同一组平面编号。ToR 只连接本 Pod 的 T1；T1 向上只进入所属平面的 Spine。共享 Spine 可以服务多个 Pod，Pod 筛选会保留它们。默认两层单平面网络整体放在同一个几何面内：T0、T1 各占一行，终端也位于该面，统一使用 P0 颜色。径向布局仍按同心层组织。已有 `colorBy=tier` 链接会自动升级为平面着色，无需选择颜色模式。
 
 参数和视图会本地保存；每次生成网络或修改视图，地址栏 query params 会同步当前已应用配置。「分享」弹窗中可以复制网络链接，也可以一键复制用于博客的 **iframe**，代码旁边提供实时预览。两者都使用已应用的配置和当前视图，不包含未应用的输入。iframe 只读展示拓扑、设备与链路数量、带宽和各层硬件参数；支持旋转、缩放、点选设备及重置视图，不提供参数编辑。嵌入页面（`embed=1&lang=zh-CN` 或 `lang=en`）不会读取或覆盖本地保存的项目。供博客读者访问时，请在已公开部署的站点上复制 iframe。链接参数优先于浏览器本地保存的配置。已有的 JSON 配置文件可通过「导入」加载。
+
+分享弹窗支持设置 iframe 宽度（像素或百分比）和高度（像素），代码与实时预览同步更新。预览过大时按比例缩小显示，内部仍使用指定的视口尺寸。嵌入页顶部的 ClosLab 链接会在新标签页打开主页。
 
 2D 大图默认按层间高度取景，长行可以延伸到视口外，避免为塞下所有平面而缩成细线。滚轮缩放、右键拖动平移；点击画布右下角「查看全图」可看到完整范围，图区域顶部的「Reset view」恢复初始可读比例。
 

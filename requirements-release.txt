@@ -1,0 +1,2 @@
+# Provides the bumpversion CLI used by scripts/release.mjs.
+bump2version==1.0.1

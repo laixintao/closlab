@@ -1,8 +1,9 @@
 import { Check, Copy, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
-import { iframeMarkup, shareUrls } from '../model/share';
+import { DEFAULT_EMBED_SIZE, MAX_EMBED_DIMENSION, iframeMarkup, shareUrls, validEmbedSize, type EmbedSize } from '../model/share';
 import type { TopologySpec, ViewConfig } from '../model/types';
+import IframePreview from './IframePreview';
 
 export default function ShareDialog({ spec, view, onClose }: {
   spec: TopologySpec; view: ViewConfig; onClose: () => void;
@@ -12,8 +13,18 @@ export default function ShareDialog({ spec, view, onClose }: {
   const linkField = useRef<HTMLInputElement>(null), codeField = useRef<HTMLTextAreaElement>(null);
   const [copied, setCopied] = useState<'link' | 'embed' | null>(null);
   const [failed, setFailed] = useState(false);
+  const [sizeInput, setSizeInput] = useState({ width: String(DEFAULT_EMBED_SIZE.width), widthUnit: DEFAULT_EMBED_SIZE.widthUnit, height: String(DEFAULT_EMBED_SIZE.height) });
+  const [size, setSize] = useState(DEFAULT_EMBED_SIZE);
+  const validSize = validEmbedSize({ ...sizeInput, width: Number(sizeInput.width), height: Number(sizeInput.height) });
+  const widthLimit = sizeInput.widthUnit === '%' ? 100 : MAX_EMBED_DIMENSION;
+  const changeSize = (patch: Partial<typeof sizeInput>) => {
+    const next = { ...sizeInput, ...patch };
+    setSizeInput(next); setCopied(null); setFailed(false);
+    const parsed = { ...next, width: Number(next.width), height: Number(next.height) };
+    if (validEmbedSize(parsed)) setSize(parsed);
+  };
   const urls = useMemo(() => shareUrls(window.location.href, spec, view, locale), [spec, view, locale]);
-  const code = useMemo(() => iframeMarkup(urls.embed), [urls.embed]);
+  const code = useMemo(() => iframeMarkup(urls.embed, size), [urls.embed, size]);
   useEffect(() => { dialog.current?.showModal(); }, []);
   useEffect(() => {
     if (!copied) return;
@@ -21,6 +32,7 @@ export default function ShareDialog({ spec, view, onClose }: {
     return () => window.clearTimeout(timer);
   }, [copied]);
   const copy = async (kind: 'link' | 'embed') => {
+    if (kind === 'embed' && !validSize) return;
     setCopied(null); setFailed(false);
     try {
       await navigator.clipboard.writeText(kind === 'link' ? urls.link : code);
@@ -42,13 +54,27 @@ export default function ShareDialog({ spec, view, onClose }: {
       <div className="share-embed-grid">
         <section className="share-code"><h3>{t('Embed in your blog')}</h3>
           <p>{t('Read-only topology and key parameters.')}</p>
-          <textarea ref={codeField} aria-label={t('iframe code')} readOnly spellCheck={false} value={code} onFocus={event => event.currentTarget.select()} />
-          <button className="primary-button" aria-label={t('Copy iframe')} onClick={() => void copy('embed')}>
+          <div className="share-size-fields">
+            <label className="field"><span>{t('Width')}</span><div className="share-width-input">
+              <input aria-label={t('iframe width')} type="number" min="1" max={widthLimit} step="1" value={sizeInput.width}
+                aria-invalid={!validSize} aria-describedby={!validSize ? 'iframe-size-error' : undefined}
+                onChange={event => changeSize({ width: event.target.value })} />
+              <select aria-label={t('Width unit')} value={sizeInput.widthUnit} onChange={event => changeSize({
+                widthUnit: event.target.value as EmbedSize['widthUnit'], width: event.target.value === '%' ? '100' : '800',
+              })}><option value="%">%</option><option value="px">px</option></select>
+            </div></label>
+            <label className="field"><span>{t('Height')}</span><div className="input-wrap">
+              <input aria-label={t('iframe height')} type="number" min="1" max={MAX_EMBED_DIMENSION} step="1" value={sizeInput.height}
+                aria-invalid={!validSize} aria-describedby={!validSize ? 'iframe-size-error' : undefined}
+                onChange={event => changeSize({ height: event.target.value })} /><span className="input-suffix">px</span>
+            </div></label>
+          </div>
+          {!validSize && <p id="iframe-size-error" className="error-text" role="alert">{t('Use whole numbers: width 1–{widthMax}, height 1–{heightMax} px.', { widthMax: widthLimit, heightMax: MAX_EMBED_DIMENSION })}</p>}
+          <textarea ref={codeField} aria-label={t('iframe code')} readOnly spellCheck={false} value={validSize ? code : ''} onFocus={event => event.currentTarget.select()} />
+          <button className="primary-button" aria-label={t('Copy iframe')} disabled={!validSize} onClick={() => void copy('embed')}>
             {copied === 'embed' ? <Check size={16} /> : <Copy size={16} />}{t(copied === 'embed' ? 'Copied' : 'Copy iframe')}</button>
         </section>
-        <section className="share-preview"><h3>{t('Preview')}</h3>
-          <iframe src={urls.embed} title={t('iframe preview')} allow="fullscreen" />
-        </section>
+        <IframePreview src={urls.embed} size={size} />
       </div>
       {failed && <p className="share-feedback error-text" role="alert">{t('Copy failed. The text is selected; press Ctrl+C or ⌘C to copy.')}</p>}
       {copied && <span className="visually-hidden" role="status">{t('Copied')}</span>}

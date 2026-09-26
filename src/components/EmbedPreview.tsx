@@ -1,4 +1,4 @@
-import { Expand, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { Expand, ExternalLink, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18nProvider';
 import type { LocalizedText } from '../i18n/core';
@@ -25,7 +25,9 @@ export default function EmbedPreview({ spec, view, summary, graph, layout, busy,
     } catch { /* The host blog may disable fullscreen; the preview stays interactive. */ }
   };
   return <div ref={root} className="embed-shell" data-testid="embed-preview">
-    <header className="embed-heading"><strong>ClosLab</strong>
+    <header className="embed-heading"><a className="embed-home" href={new URL('./', window.location.href).href}
+      target="_blank" rel="noopener noreferrer" aria-label={t('ClosLab home')} title={t('ClosLab home')}>
+      <strong>ClosLab</strong><ExternalLink size={13} /></a>
       {!error && <span>{t(planes === 1 ? '{tiers} tiers · {planes} plane' : '{tiers} tiers · {planes} planes', { tiers: spec.tiers.length, planes })}</span>}
       <div className="embed-view-actions"><button className="icon-button" aria-label={t('Reset view')} title={t('Reset view')} onClick={() => canvas.current?.reset()}><RotateCcw size={16} /></button>
         <button className="icon-button" aria-label={t('Fullscreen preview')} title={t('Fullscreen preview')} onClick={() => void fullscreen()}><Expand size={16} /></button></div>

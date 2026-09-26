@@ -26,6 +26,29 @@ npm run preview
 
 Production files are written to **dist/** and can be deployed at the root of a static web server.
 
+## Versioned releases
+
+The release commands use the `bumpversion` CLI provided by [bump2version](https://github.com/c4urself/bump2version). Install the pinned release tool once:
+
+```bash
+uv tool install bump2version==1.0.1
+```
+
+Alternatively, create a Python virtual environment with `python3 -m venv .venv-release`, activate it with `source .venv-release/bin/activate`, and run `python -m pip install -r requirements-release.txt`. Python is only needed for releases, not for normal development or builds.
+
+From a clean `main` branch, choose the release increment:
+
+```bash
+npm run release:patch -- --dry-run  # Preview the next version without changing files
+npm run release:patch              # Bug fixes
+# npm run release:minor            # New features
+# npm run release:major            # Breaking changes
+```
+
+The command runs tests and the production build first. It then uses `.bumpversion.cfg` to update `package.json`, synchronizes both app version fields in `package-lock.json` without touching dependency versions, creates a `Release vX.Y.Z` commit, and adds an annotated `vX.Y.Z` tag. Use these npm commands instead of running `bumpversion` directly so the lockfile, commit and tag stay together. `npm run release:check` checks version consistency and also runs automatically before every build. `npm run test:release` tests the release workflow in temporary repositories.
+
+The release command prints an explicit push command, for example `git push --atomic origin main v0.1.1`, to publish that commit and tag together. Creating a local release does not push or deploy. The existing Cloudflare workflow continues to deploy pushes to `main`; tags identify releases but do not change its branch-based deployment behavior.
+
 ## Deploying to Cloudflare Pages
 
 ClosLab builds into a static site, so Pages can serve the entire app from `dist/`. Computation and Web Workers run in the visitor's browser; no Pages Functions, database, or runtime secrets are required.
@@ -113,6 +136,8 @@ In the 3D Layered and Expanded Planes layouts, each plane's switches lie in a se
 Plane colors and geometry are generated automatically. For 3–5 tier topologies without an explicit plane split, the shared Leaf tier is removed to identify planes from the actual connected components above it. Explicit multi-plane configurations use their configured plane groups. In 3D, each plane is a separate vertical surface with one row per tier. In three-tier networks, shared ToR switches form horizontal rows by Pod, with that Pod's Fabric Switches above them. Plane and Pod boundaries and labels are visual guides; they do not count as devices or physical links. At larger scales, each annotation type is limited to the first 64 groups, while all devices and links are still rendered. Automatically detected planes are also tiled horizontally in 2D. In Pod layouts, each lower Pod sheet has one color across its ToR and Fabric nodes, internal ToR–Fabric links, boundary, and label. Upper Fabric–Spine links and Spine nodes retain their plane colors; endpoints remain neutral. Plane filters and node details use the same plane IDs. ToRs connect only to T1 switches in their own Pod, and T1 switches connect upward only to Spines in their own plane. Shared Spines can serve multiple Pods and remain visible when filtering by Pod. The default two-tier, single-plane network lies on one geometric plane: T0 and T1 each occupy one row, endpoints lie on the same plane, and all use the P0 color. The Radial layout retains concentric tiers. Existing `colorBy=tier` links automatically upgrade to plane coloring; no color mode selection is needed.
 
 Parameters and views are saved locally. Generating a network or changing the view updates the address bar's query parameters with the currently applied configuration. Open **Share** to copy a network link or an **iframe** for your blog, with a live preview beside the embed code. Both use the applied configuration and current view; unapplied inputs are excluded. The iframe shows the topology, device/link counts, bandwidth and tier hardware in read-only form. Visitors can rotate, zoom, select devices and reset the view. Embedded pages (`embed=1&lang=en` or `lang=zh-CN`) do not read or overwrite locally saved projects. Copy from your publicly deployed site to make the iframe accessible to blog readers. URL parameters take precedence over locally saved settings. Existing JSON configuration files can be loaded using Import.
+
+The Share dialog lets you set iframe width in pixels or percent and height in pixels. The code and live preview update together; larger previews are scaled to fit the dialog while retaining the requested viewport dimensions. The ClosLab link in the embedded header opens the homepage in a new tab.
 
 Large 2D graphs initially frame the tier heights, allowing long rows to extend beyond the viewport so that fitting every plane does not shrink the graph into a thin line. Use the scroll wheel to zoom and drag with the right mouse button to pan. Click Fit All in the bottom-right corner of the canvas to see the full extent, or Reset view above the graph to restore the initial readable scale.
 
