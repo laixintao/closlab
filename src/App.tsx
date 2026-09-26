@@ -1,10 +1,12 @@
 import { useI18n } from './i18n/I18nProvider';
 import { errorText, LocalizedError, msg, type LocalizedText, type MessageKey } from './i18n/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Box, Check, ChevronDown, CircleHelp, Expand,
+import { ArrowDownToLine, ArrowUpFromLine, Box, ChevronDown, CircleHelp, Expand,
   Gauge, GitBranch, Languages, Layers3, Link2, LoaderCircle, Maximize, Minimize, MousePointer2, Network, Pause, Play, RotateCcw, Scan, Search, SlidersHorizontal, X } from 'lucide-react';
 import ConfigPanel from './components/ConfigPanel';
 import Inspector, { type PathEndpoint, type PathInputs } from './components/Inspector';
+import ShareDialog from './components/ShareDialog';
+import EmbedPreview from './components/EmbedPreview';
 import { NetworkCanvas, type CanvasHandle } from './components/NetworkCanvas';
 import { DEFAULT_SPEC } from './model/defaults';
 import { calculate, findNode, nodeLabel, SpecError } from './model/engine';
@@ -28,8 +30,10 @@ function initialProject(): SavedProject & { urlError?: LocalizedText } {
     const shared = projectFromQuery(window.location.search);
     if (shared) return shared;
   } catch (error) {
-    return { ...defaults, urlError: msg('Invalid share-link parameters; defaults loaded: {error}', { error: errorText(error) }) };
+    const embedded = new URLSearchParams(window.location.search).get('embed') === '1';
+    return { ...defaults, urlError: msg(embedded ? 'Invalid preview parameters: {error}' : 'Invalid share-link parameters; defaults loaded: {error}', { error: errorText(error) }) };
   }
+  if (new URLSearchParams(window.location.search).get('embed') === '1') return defaults;
   try { const saved = localStorage.getItem(STORAGE_KEY); if (saved) return parseProject(saved); } catch { /* Recover safely from unavailable storage or incompatible projects. */ }
   return defaults;
 }
@@ -40,6 +44,7 @@ function download(text: string, filename: string) {
 }
 export default function App() {
   const { t, text, locale, setLocale } = useI18n();
+  const [embedded] = useState(() => new URLSearchParams(window.location.search).get('embed') === '1');
   const [initial] = useState(initialProject);
   const [draft, setDraft] = useState<TopologySpec>(initial.spec);
   const [applied, setApplied] = useState<TopologySpec>(initial.spec);
@@ -48,7 +53,8 @@ export default function App() {
   const [layout, setLayout] = useState<LayoutResult | null>(null);
   const [busy, setBusy] = useState(true), [layoutBusy, setLayoutBusy] = useState(false);
   const [message, setMessage] = useState<LocalizedText>(''), [renderError, setRenderError] = useState<LocalizedText>('');
-  const [urlError, setUrlError] = useState(initial.urlError ?? ''), [copied, setCopied] = useState(false);
+  const [urlError, setUrlError] = useState(initial.urlError ?? '');
+  const [sharing, setSharing] = useState(false);
   const [selected, setSelected] = useState<number | null>(null), [path, setPath] = useState<number[]>([]);
   const [allPaths, setAllPaths] = useState<PathSet | null>(null), [pathBusy, setPathBusy] = useState(false);
   const [pathInputs, setPathInputs] = useState<PathInputs>({ source: 'E-0', target: 'E-1' });
@@ -71,6 +77,7 @@ export default function App() {
   }, [draft]);
 
   useEffect(() => {
+    if (embedded && initial.urlError) { setBusy(false); return; }
     const worker = new TopologyClient(); client.current = worker;
     let cancelled = false;
     setBusy(true); setResult(null); setLayout(null); setMessage(''); setRenderError('');
@@ -82,7 +89,7 @@ export default function App() {
       setResult(next); setLayout(next.layout); setBusy(false);
     }).catch(error => { if (!cancelled) { setMessage(errorText(error)); setBusy(false); } });
     return () => { cancelled = true; worker.dispose(); if (client.current === worker) client.current = null; };
-  }, [applied]);
+  }, [applied, embedded, initial.urlError]);
   useEffect(() => {
     if (!result?.graph || !client.current) return;
     let cancelled = false;
@@ -93,23 +100,19 @@ export default function App() {
     return () => { cancelled = true; };
   }, [view.layout, result?.graph]);
   useEffect(() => {
+    if (embedded) return;
     try { localStorage.setItem(STORAGE_KEY, serializeProject(applied, view)); } catch { /* Local files remain available when browser storage is disabled. */ }
     if (!urlError) {
       const url = new URL(window.location.href); url.search = projectToQuery(applied, view);
       window.history.replaceState(window.history.state, '', url);
     }
-    setCopied(false);
-  }, [applied, view, urlError]);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 2000);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
+  }, [applied, view, urlError, embedded]);
   useEffect(() => {
     if (help) dialog.current?.showModal(); else dialog.current?.close();
   }, [help]);
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (document.querySelector('dialog[open]')) return;
       if (event.key === 'Escape') { setFocused(false); setSelected(null); setPath([]); setAllPaths(null); setPathBusy(false); setPickingPathEndpoint(null); pathRequest.current++; }
     };
     window.addEventListener('keydown', handleKey); return () => window.removeEventListener('keydown', handleKey);
@@ -182,11 +185,6 @@ export default function App() {
     catch (error) { setMessage(errorText(error, "Benchmark failed")); }
     finally { setBenchmarkBusy(false); }
   };
-  const copyShareLink = async () => {
-    const url = new URL(window.location.href); url.search = projectToQuery(applied, view);
-    try { await navigator.clipboard.writeText(url.href); setCopied(true); }
-    catch { setMessage(msg("Could not copy automatically. Copy the network link from the address bar.")); }
-  };
   const summary = result?.summary;
   const currentSpec = result?.spec ?? applied;
   const hasFilter = Object.values(filter).some(v => v !== null);
@@ -194,6 +192,8 @@ export default function App() {
   const colorGroupCount = result?.graph?.colorGroupCount ?? currentSpec.planes;
   const naturalGroups = result?.graph?.colorGroupKind === 'connection';
   const podColors = result?.graph ? usesPodColors(result.graph) : false;
+  if (embedded) return <EmbedPreview spec={currentSpec} view={view} summary={summary ?? null} graph={result?.graph ?? null}
+    layout={layout} busy={busy || layoutBusy} error={urlError || message} />;
   return <div className="app">
     <header className="topbar">
       <a href="./" className="brand" aria-label={t("ClosLab home")}><img src="/favicon.svg" alt="" /><strong>ClosLab</strong></a>
@@ -206,8 +206,8 @@ export default function App() {
         </label>
         <button className="quiet-button" aria-label={t("Model guide")} onClick={() => setHelp(true)}><CircleHelp size={15} /><span>{t("Model guide")}</span></button>
         <button className="quiet-button" aria-label={t("Import")} onClick={() => fileInput.current?.click()}><ArrowUpFromLine size={15} /><span>{t("Import")}</span></button>
-        <button className="quiet-button" aria-label={t("Copy share link")} title={t("Copy a share link for the generated network")} onClick={() => void copyShareLink()}>
-          {copied ? <Check size={15} /> : <Link2 size={15} />}<span>{copied ? t("Copied") : t("Share")}</span></button>
+        <button className="quiet-button" aria-label={t("Share")} onClick={() => setSharing(true)}>
+          <Link2 size={15} /><span>{t("Share")}</span></button>
         <input ref={fileInput} aria-label={t("Import configuration file")} type="file" accept=".json,application/json" hidden onChange={e => void importProject(e.target.files?.[0])} />
       </nav>
     </header>
@@ -269,7 +269,7 @@ export default function App() {
                   <div className="color-mode" data-testid="color-mode">{podColors ? t("Pod / plane colors · Auto") : groupedColors ? t("Plane colors · Auto") : t("Tier colors · Auto")}</div>
                   <label>{t("Show endpoints")}<input aria-label={t("Show endpoints")} type="checkbox" checked={view.showEndpoints}
                     onChange={e => { updateView({ showEndpoints: e.target.checked }); selectNode(null); }} /></label>
-                  <label className="opacity-control">{t("Link intensity")}<input aria-label={t("Link intensity")} type="range" min="0.01" max="0.8" step="0.01"
+                  <label className="opacity-control">{t("Link intensity")}<input aria-label={t("Link intensity")} type="range" min="0.01" max="1" step="0.01"
                     value={view.opacity} onChange={e => updateView({ opacity: Number(e.target.value) })} /></label>
                 </div>
                 <div className="view-controls">
@@ -334,6 +334,7 @@ export default function App() {
       </section>
     </main>
     {(message || urlError) && <div className="toast" role="alert"><CircleHelp size={16} /><span>{text(message || urlError)}</span><button aria-label={t("Dismiss message")} onClick={() => { setMessage(''); setUrlError(''); }}><X size={14} /></button></div>}
+    {sharing && <ShareDialog spec={applied} view={view} onClose={() => setSharing(false)} />}
     <dialog ref={dialog} className="help-dialog" onClose={() => setHelp(false)}>
       <div className="dialog-heading"><h2>{t("Understand your Clos network")}</h2><button className="icon-button" aria-label={t("Close model guide")} onClick={() => setHelp(false)}><X size={18} /></button></div>
       <div className="dialog-content">

@@ -11,6 +11,8 @@ const I18nContext = createContext<I18n | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, updateLocale] = useState<Locale>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('embed') === '1') return params.get('lang') === 'zh-CN' ? 'zh-CN' : 'en';
     try { return readLocale(window.localStorage); } catch { return 'en'; }
   });
   useEffect(() => {

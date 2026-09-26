@@ -421,7 +421,11 @@ export class NetworkScene {
   private updateOpacity() {
     if (this.links) {
       const density = this.graph!.edgeCount > DEPTH_LINK_THRESHOLD ? 1 : Math.max(1, (this.visibleEdgeCount / 1800) ** 0.85);
-      this.links.material.uniforms.opacity.value = this.view.opacity / density * (this.selected !== null || this.path.length || this.allPaths ? 0.13 : 1);
+      // Preserve density compensation at ordinary settings, but let the upper
+      // end of the slider smoothly override it and reach full color strength.
+      const strength = THREE.MathUtils.smoothstep(this.view.opacity, 0.8, 1);
+      const opacity = THREE.MathUtils.lerp(this.view.opacity / density, this.view.opacity, strength);
+      this.links.material.uniforms.opacity.value = opacity * (this.selected !== null || this.path.length || this.allPaths ? 0.13 : 1);
     }
   }
   private clearHighlights() {

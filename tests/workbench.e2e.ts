@@ -310,9 +310,11 @@ test('shares applied parameters and restores the network independently of local 
   const shared = page.url();
   expect(new URL(shared).searchParams.get('endpoints')).toBe('100');
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'Share', exact: true }).click();
   await page.getByRole('button', { name: "Copy share link", exact: true }).click();
   await expect(page.getByRole('button', { name: "Copy share link", exact: true })).toContainText("Copied");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(shared);
+  await page.getByRole('button', { name: 'Close sharing' }).click();
   await importSpec(page, uniformSpec());
   await ready(page);
   await page.goto(shared);

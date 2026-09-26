@@ -16,7 +16,7 @@ export function parseProject(text: string): SavedProject {
   const v = project.view ?? DEFAULT_VIEW;
   if (!['layered', 'planes', 'flat', 'radial'].includes(v.layout) ||
       !['tier', 'plane'].includes(v.colorBy) ||
-      typeof v.opacity !== 'number' || !Number.isFinite(v.opacity) || v.opacity < 0.01 || v.opacity > 0.8)
+      typeof v.opacity !== 'number' || !Number.isFinite(v.opacity) || v.opacity < 0.01 || v.opacity > 1)
     throw new LocalizedError(msg("Invalid visualization configuration"));
   if (v.showEndpoints !== undefined && typeof v.showEndpoints !== 'boolean') throw new LocalizedError(msg("Invalid endpoint visibility setting"));
   // Ignore retired line-style settings and normalize legacy tier coloring.

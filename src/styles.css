@@ -552,6 +552,65 @@ td { font-family: inherit; font-variant-numeric: tabular-nums; }
 .neighbors-popover { width: min(440px,calc(100vw - 32px)); padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 5px; color: var(--ink); box-shadow: 0 8px 30px #263c4d26; }
 .neighbors-popover .neighbor-list { max-height: none; grid-template-columns: repeat(3,minmax(0,1fr)); }
 .neighbors-popover .subheading { gap: 12px; }
+.share-dialog { width: min(1120px,calc(100vw - 40px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--ink); box-shadow: 0 16px 64px #263c4d26; }
+.share-dialog::backdrop { background: #25343f55; }
+.share-heading { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); background: #fff; }
+.share-heading h2 { font-size: 18px; font-weight: 600; margin: 0; }
+.share-content { padding: 18px 20px 20px; }
+.share-link-label { display: block; margin-bottom: 7px; font-weight: 500; }
+.share-link-row { display: flex; gap: 10px; }
+.share-link-row input { min-width: 0; flex: 1; font-size: 13px; height: 36px; }
+.share-dialog .secondary-button, .share-dialog .primary-button { width: auto; padding: 8px 14px; font-size: 14px; gap: 8px; white-space: nowrap; }
+.share-embed-grid { display: grid; grid-template-columns: minmax(260px,0.85fr) minmax(0,1.65fr); gap: 24px; margin-top: 24px; }
+.share-embed-grid h3 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.share-code { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.share-code p { margin: 0 0 12px; color: var(--secondary); line-height: 1.5; }
+.share-code textarea { flex: 1; width: 100%; min-height: 220px; resize: none; padding: 12px; border: 1px solid var(--border); border-radius: 4px; background: #f8f9fa; color: var(--ink); font: 12px/1.6 var(--mono); overflow-wrap: anywhere; }
+.share-code textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.share-code .primary-button { margin-top: 12px; }
+.share-preview { min-width: 0; }
+.share-preview iframe { display: block; width: 100%; height: 440px; border: 1px solid var(--border); border-radius: 4px; background: #fff; }
+.share-feedback { margin: 14px 0 0; }
+
+/* A self-contained, read-only view for embedded blog previews. */
+.embed-shell { display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden; background: #fff; color: var(--ink); }
+.embed-heading { flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 6px 14px; border-bottom: 1px solid var(--border); }
+.embed-heading strong { font-size: 16px; }
+.embed-heading>span { font-size: 13px; color: var(--secondary); }
+.embed-view-actions { display: flex; gap: 4px; margin-left: auto; }
+.embed-metrics { flex-shrink: 0; display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.embed-metrics dt { font-size: 12px; color: var(--secondary); line-height: 1.3; }
+.embed-metrics dd { margin: 4px 0 0; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.embed-canvas { flex: 1; min-height: 0; position: relative; overflow: hidden; background: #f9fafb; }
+.embed-selection { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 8px; padding: 3px 5px 3px 10px; max-width: calc(100% - 20px); border: 1px solid var(--border); border-radius: 4px; background: #fffffff2; font-size: 13px; }
+.embed-selection>span { color: var(--secondary); }
+.embed-notice { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; background: #f9fafbe8; }
+.embed-parameters { flex-shrink: 0; padding: 8px 14px; border-top: 1px solid var(--border); }
+.embed-parameter-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 4px; font-size: 12px; color: var(--secondary); }
+.embed-parameter-heading>span:first-child { font-weight: 500; color: var(--ink); }
+.embed-parameters table { width: 100%; border-collapse: collapse; }
+.embed-parameters th, .embed-parameters td { padding: 3px 8px; border: 0; background: transparent; font-size: 12px; text-align: left; white-space: nowrap; }
+.embed-parameters th { font-weight: 400; color: var(--secondary); }
+.embed-parameters td { color: var(--ink); }
+.embed-parameters tr:nth-child(even) td { background: transparent; }
+.embed-parameters th:first-child, .embed-parameters td:first-child { padding-left: 0; }
+.embed-parameters th:last-child, .embed-parameters td:last-child { padding-right: 0; text-align: right; }
+@media (max-width:800px) {
+  .share-dialog { width: calc(100vw - 24px); max-height: calc(100dvh - 24px); }
+  .share-heading { padding: 12px 16px; }
+  .share-content { padding: 16px; }
+  .share-embed-grid { grid-template-columns: 1fr; gap: 20px; margin-top: 20px; }
+  .share-code textarea { min-height: 100px; height: 100px; flex: auto; }
+  .share-preview iframe { height: 440px; }
+}
+@media (max-width:480px) {
+  .embed-heading, .embed-metrics { padding-left: 10px; padding-right: 10px; }
+  .embed-heading { gap: 8px; }
+  .embed-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 16px; }
+  .embed-metrics dd { font-size: 18px; margin-top: 2px; }
+  .embed-parameters { padding: 6px 10px; }
+  .embed-parameters th, .embed-parameters td { padding-left: 4px; padding-right: 4px; }
+}
 .inspector-content .notes-section>p { margin-bottom: 4px; line-height: 1.4; }
 @media (min-width:1001px) and (max-width:1399px) {
   .inspector { width: 340px; }

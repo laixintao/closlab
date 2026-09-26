@@ -92,8 +92,8 @@ test('language and canvas controls remain reachable on mobile in both languages'
   await page.goto('/');
   await expect(page.getByTestId('render-status')).toHaveAttribute('data-ready', 'true');
   for (const [label, language, focus, exit, reset, shareLabel] of [
-    ['Language', 'zh-CN', '专注模式', '退出专注模式', '重置视图', '复制分享链接'],
-    ['语言', 'en', 'Focus mode', 'Exit focus mode', 'Reset view', 'Copy share link'],
+    ['Language', 'zh-CN', '专注模式', '退出专注模式', '重置视图', '分享'],
+    ['语言', 'en', 'Focus mode', 'Exit focus mode', 'Reset view', 'Share'],
   ]) {
     await page.getByLabel(label, { exact: true }).selectOption(language);
     await expect(page.getByRole('button', { name: shareLabel, exact: true })).toBeVisible();
