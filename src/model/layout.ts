@@ -1,3 +1,4 @@
+import { layout2D } from './layout2d';
 import type { CapacitySummary, LayoutMode, LayoutResult, TopologyBuffers, TopologySpec } from './types';
 
 function grid(index: number, count: number, span: number): [number, number] {
@@ -8,7 +9,7 @@ function grid(index: number, count: number, span: number): [number, number] {
 }
 
 /** A two-tier single fabric is one sheet, including its endpoint groups. */
-function singlePlaneLayout(graph: TopologyBuffers, spec: TopologySpec, summary: CapacitySummary, mode: LayoutMode, span: number): LayoutResult {
+function singlePlaneLayout(graph: TopologyBuffers, spec: TopologySpec, summary: CapacitySummary, span: number): LayoutResult {
   const positions = new Float32Array(graph.nodeCount * 3), gap = span * 0.32;
   const leaves = Number(summary.switches[0]), spines = Number(summary.switches[1]);
   const cols = Math.ceil(Math.sqrt(spec.tiers[0].down));
@@ -17,7 +18,7 @@ function singlePlaneLayout(graph: TopologyBuffers, spec: TopologySpec, summary: 
   const leafStep = Math.max(4, (cols + 1) * pointStep);
   const width = Math.max(span * 0.65, (leaves - 1) * leafStep, (spines - 1) * 4);
   const at = (ordinal: number, count: number) => count === 1 ? 0 : (ordinal / (count - 1) - 0.5) * width;
-  const point = (along: number, height: number): [number, number, number] => mode === 'flat' ? [along, height, 0] : [0, height, along];
+  const point = (along: number, height: number): [number, number, number] => [0, height, along];
   for (let n = 0; n < graph.nodeCount; n++) {
     const tier = graph.tier[n];
     let along: number, height: number;
@@ -45,10 +46,11 @@ function singlePlaneLayout(graph: TopologyBuffers, spec: TopologySpec, summary: 
 
 /** All layouts preserve node IDs and the original edge list; no force simulation. */
 export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary: CapacitySummary, mode: LayoutMode): LayoutResult {
+  if (mode === 'flat') return layout2D(graph, spec, summary);
   const positions = new Float32Array(graph.nodeCount * 3);
   const span = Math.max(180, Math.min(1200, Math.sqrt(graph.endpointCount) * 2.5));
   if (spec.planes === 1 && spec.tiers.length === 2 && mode !== 'radial')
-    return singlePlaneLayout(graph, spec, summary, mode, span);
+    return singlePlaneLayout(graph, spec, summary, span);
   let gap = span * 0.32;
   const baseLeaves = Number(summary.groups[0]);
   const leafStep = span / Math.max(2, Math.ceil(Math.sqrt(baseLeaves * 1.4)));
@@ -58,12 +60,12 @@ export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary:
   // grid all replicas together: wrapping that grid scatters one plane over
   // several columns and makes independent fabrics look interleaved.
   const planeCount = graph.colorGroupCount, planeIds = graph.colorGroup;
-  const separatePlanes = planeCount > 0 && (mode === 'planes' || mode === 'layered' || mode === 'flat');
+  const separatePlanes = planeCount > 0 && (mode === 'planes' || mode === 'layered');
   const planeStep = Math.max(8, span * (mode === 'planes' ? 0.5 : 0.36) * Math.min(1, 4 / planeCount));
   const switchStep = Math.max(4, span / 60);
   // In a three-tier fabric, each Pod is a transverse sheet: its ToR row below
   // the Fabric switches that sit at the intersections with the upper planes.
-  const podSheets = separatePlanes && mode !== 'flat' && spec.tiers.length === 3 && planeIds[graph.tierOffsets[0]] < 0 &&
+  const podSheets = separatePlanes && spec.tiers.length === 3 && planeIds[graph.tierOffsets[0]] < 0 &&
     planeIds[graph.tierOffsets[1]] >= 0;
   if (podSheets) gap = span * 0.56;
   const podCount = Number(summary.groups[1]);
@@ -80,39 +82,12 @@ export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary:
       planeTotals.set(key, (planeTotals.get(key) ?? 0) + 1);
     }
   }
-  // In 2D, a whole fabric occupies its own horizontal interval. Stacking plane
-  // rows vertically would send one fabric's links through every other fabric.
-  const flatPlaneCenters: number[] = [];
-  let flatWidth = 0;
-  if (separatePlanes && mode === 'flat') {
-    for (let plane = 0; plane < planeCount; plane++) {
-      let widestRow = 1;
-      for (let tier = 0; tier < spec.tiers.length; tier++) {
-        widestRow = Math.max(widestRow, planeTotals.get(tier + ':' + plane) ?? 0);
-      }
-      const width = Math.max(span * 0.45, (widestRow - 1) * switchStep);
-      flatPlaneCenters.push(flatWidth + width / 2);
-      flatWidth += width + gap;
-    }
-    flatWidth -= gap;
-    for (let plane = 0; plane < planeCount; plane++) flatPlaneCenters[plane] -= flatWidth / 2;
-  }
   for (let n = 0; n < graph.nodeCount; n++) {
     const tier = graph.tier[n], level = tier + 1;
     const count = tier < 0 ? graph.endpointCount : Number(summary.switches[tier]);
     const local = tier < 0 ? n : n - graph.tierOffsets[tier];
     let x = 0, y = level * gap, z = 0;
-    if (mode === 'flat' && separatePlanes && planeIds[n] >= 0) {
-      const plane = planeIds[n], key = tier + ':' + plane;
-      const ordinal = planeCounters.get(key) ?? 0;
-      planeCounters.set(key, ordinal + 1);
-      x = flatPlaneCenters[plane] + (ordinal - (planeTotals.get(key)! - 1) / 2) * switchStep;
-    } else if (mode === 'flat') {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(count) * 4));
-      const rows = Math.ceil(count / cols);
-      x = ((local % cols) / Math.max(1, cols - 1) - 0.5) * Math.max(span, flatWidth);
-      y += ((Math.floor(local / cols) + 0.5) / rows - 0.5) * gap * 0.48;
-    } else if (mode === 'radial') {
+    if (mode === 'radial') {
       const rings = Math.max(1, Math.ceil(count / 600));
       const ring = local % rings, angle = Math.floor(local / rings) / Math.ceil(count / rings) * Math.PI * 2;
       const radius = span * (0.16 + (spec.tiers.length - level) * 0.19) + (ring / rings - 0.5) * span * 0.08;
@@ -158,7 +133,7 @@ export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary:
     } else {
       [x, z] = grid(local, count, span * (1 - tier * 0.10));
     }
-    if (separatePlanes && mode !== 'flat' && planeIds[n] < 0 && !podSheets) {
+    if (separatePlanes && planeIds[n] < 0 && !podSheets) {
       x *= Math.max(1, (planeCount - 1) * planeStep / span);
     }
     positions[n * 3] = x; positions[n * 3 + 1] = y; positions[n * 3 + 2] = z;
@@ -177,7 +152,7 @@ export function layoutGraph(graph: TopologyBuffers, spec: TopologySpec, summary:
       guideGroups.push(group, group);
     }
   };
-  if (separatePlanes && mode !== 'flat' && spec.tiers.length >= 3) {
+  if (separatePlanes && spec.tiers.length >= 3) {
     const bounds = Array.from({ length: planeCount }, () => ({ x: 0, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity }));
     for (let n = 0; n < graph.nodeCount; n++) {
       const p = planeIds[n]; if (p < 0) continue;

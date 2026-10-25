@@ -223,14 +223,14 @@ describe('validation, persistence and layouts', () => {
   it('automatically lays out connected planes and perpendicular Pod rows without changing wiring', () => {
     const spec = uniformSpec(8, 3), summary = calculate(spec), graph = generate(spec, summary);
     const original = graph.edges.slice();
-    for (const mode of ['layered', 'planes', 'flat'] as const) {
+    for (const mode of ['layered', 'planes'] as const) {
       const { positions, guides, guideGroups } = layoutGraph(graph, spec, summary, mode);
       const bounds = new Map<number, { min: number; max: number }>();
       for (let e = 0; e < graph.edges.length; e += 2) {
         const a = graph.edges[e], b = graph.edges[e + 1];
-        if (graph.tier[a] >= 1 && mode !== 'flat') expect(positions[a * 3]).toBe(positions[b * 3]);
+        if (graph.tier[a] >= 1) expect(positions[a * 3]).toBe(positions[b * 3]);
         // Every Leaf -> Fabric link stays inside its own transverse Pod sheet.
-        if (graph.tier[a] === 0 && mode !== 'flat') expect(positions[a * 3 + 2]).toBe(positions[b * 3 + 2]);
+        if (graph.tier[a] === 0) expect(positions[a * 3 + 2]).toBe(positions[b * 3 + 2]);
       }
       for (let n = graph.tierOffsets[1]; n < graph.nodeCount; n++) {
         const group = graph.colorGroup[n], x = positions[n * 3];
@@ -240,11 +240,9 @@ describe('validation, persistence and layouts', () => {
       expect(bounds.size).toBe(4);
       for (let p = 1; p < 4; p++) expect(bounds.get(p)!.min).toBeGreaterThan(bounds.get(p - 1)!.max);
       expect(new Set(Array.from({ length: graph.nodeCount }, (_, n) => positions.slice(n * 3, n * 3 + 3).join(':'))).size).toBe(graph.nodeCount);
-      if (mode !== 'flat') {
-        expect(guides.length).toBe((4 + Number(summary.groups[1])) * 8 * 3);
-        for (let pod = 0; pod < Number(summary.groups[1]); pod++)
-          expect([...guideGroups.slice((4 + pod) * 8, (5 + pod) * 8)]).toEqual(Array(8).fill(pod));
-      }
+      expect(guides.length).toBe((4 + Number(summary.groups[1])) * 8 * 3);
+      for (let pod = 0; pod < Number(summary.groups[1]); pod++)
+        expect([...guideGroups.slice((4 + pod) * 8, (5 + pod) * 8)]).toEqual(Array(8).fill(pod));
       expect(graph.edges).toEqual(original);
     }
     const explicit = { ...spec, planes: 4, planeStart: 1 }, explicitGraph = generate(explicit);
@@ -280,40 +278,6 @@ describe('validation, persistence and layouts', () => {
         for (let i = 1; i < row.z.length; i++) expect(row.z[i] - row.z[i - 1]).toBeGreaterThanOrEqual(4);
       }
       expect(graph.edges).toEqual(original);
-    }
-  });
-  it.each([0, 1, 2])('tiles 2D planes without overlap and keeps each tier in one row above boundary %i', planeStart => {
-    const s = uniformSpec(16, 3); s.planes = 4; s.planeStart = planeStart;
-    const summary = calculate(s), graph = generate(s, summary);
-    const { positions } = layoutGraph(graph, s, summary, 'flat');
-    const rows = new Map<string, { y: number; x: number[] }>();
-    const planeBounds = new Map<number, { min: number; max: number }>();
-    const tierRows = new Map<number, number>();
-    let highestShared = -Infinity, lowestFabric = Infinity;
-    for (let n = 0; n < graph.nodeCount; n++) {
-      const [x, y, z] = positions.subarray(n * 3, n * 3 + 3);
-      expect(z).toBe(0);
-      if (graph.plane[n] < 0) { highestShared = Math.max(highestShared, y); continue; }
-      lowestFabric = Math.min(lowestFabric, y);
-      const plane = graph.plane[n], bounds = planeBounds.get(plane);
-      if (bounds) { bounds.min = Math.min(bounds.min, x); bounds.max = Math.max(bounds.max, x); }
-      else planeBounds.set(plane, { min: x, max: x });
-      if (tierRows.has(graph.tier[n])) expect(y).toBe(tierRows.get(graph.tier[n]));
-      else tierRows.set(graph.tier[n], y);
-      const key = graph.tier[n] + ':' + graph.plane[n], row = rows.get(key);
-      if (row) { expect(y).toBe(row.y); row.x.push(x); }
-      else rows.set(key, { y, x: [x] });
-    }
-    expect(rows.size).toBe((s.tiers.length - planeStart) * s.planes);
-    expect(new Set([...rows.values()].map(row => row.y)).size).toBe(s.tiers.length - planeStart);
-    for (let plane = 1; plane < s.planes; plane++) {
-      expect(planeBounds.get(plane)!.min).toBeGreaterThan(planeBounds.get(plane - 1)!.max);
-    }
-    expect(highestShared).toBeLessThan(lowestFabric);
-    for (const row of rows.values()) {
-      expect(row.x.length).toBeGreaterThan(1);
-      // Coordinates are Float32; offsetting a row can round its spacing slightly.
-      for (let i = 1; i < row.x.length; i++) expect(row.x[i] - row.x[i - 1]).toBeGreaterThan(3.999);
     }
   });
 });

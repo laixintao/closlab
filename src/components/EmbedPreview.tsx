@@ -4,13 +4,15 @@ import { useI18n } from '../i18n/I18nProvider';
 import type { LocalizedText } from '../i18n/core';
 import { nodeLabel } from '../model/engine';
 import { formatBandwidth, formatCount } from '../model/format';
-import { EMPTY_FILTER, type CapacitySummary, type FrameStats, type LayoutResult, type TopologyBuffers, type TopologySpec, type ViewConfig } from '../model/types';
+import { EMPTY_FILTER, type CapacitySummary, type FrameStats, type LayoutMode, type LayoutResult, type TopologyBuffers, type TopologySpec, type ViewConfig } from '../model/types';
 import { NetworkCanvas, type CanvasHandle } from './NetworkCanvas';
+import LayoutSelect from './LayoutSelect';
 
 const NO_PATH: number[] = [];
-export default function EmbedPreview({ spec, view, summary, graph, layout, busy, error }: {
+export default function EmbedPreview({ spec, view, summary, graph, layout, busy, layoutBusy, error, onLayoutChange }: {
   spec: TopologySpec; view: ViewConfig; summary: CapacitySummary | null;
   graph: TopologyBuffers | null; layout: LayoutResult | null; busy: boolean; error: LocalizedText;
+  layoutBusy: boolean; onLayoutChange: (layout: LayoutMode) => void;
 }) {
   const { t, text } = useI18n();
   const root = useRef<HTMLDivElement>(null), canvas = useRef<CanvasHandle>(null);
@@ -29,7 +31,9 @@ export default function EmbedPreview({ spec, view, summary, graph, layout, busy,
       target="_blank" rel="noopener noreferrer" aria-label={t('ClosLab home')} title={t('ClosLab home')}>
       <strong>ClosLab</strong><ExternalLink size={13} /></a>
       {!error && <span>{t(planes === 1 ? '{tiers} tiers · {planes} plane' : '{tiers} tiers · {planes} planes', { tiers: spec.tiers.length, planes })}</span>}
-      <div className="embed-view-actions"><button className="icon-button" aria-label={t('Reset view')} title={t('Reset view')} onClick={() => canvas.current?.reset()}><RotateCcw size={16} /></button>
+      <div className="embed-view-actions">
+        {!error && <LayoutSelect value={view.layout} onChange={onLayoutChange} disabled={busy || !graph} />}
+        <button className="icon-button" aria-label={t('Reset view')} title={t('Reset view')} onClick={() => canvas.current?.reset()}><RotateCcw size={16} /></button>
         <button className="icon-button" aria-label={t('Fullscreen preview')} title={t('Fullscreen preview')} onClick={() => void fullscreen()}><Expand size={16} /></button></div>
     </header>
     {!error && <dl className="embed-metrics" aria-label={t('Network statistics')}>
@@ -44,7 +48,7 @@ export default function EmbedPreview({ spec, view, summary, graph, layout, busy,
       {selected !== null && graph && <div className="embed-selection">{nodeLabel(graph, selected)}
         <span>{t('· Direct links: {count}', { count: graph.adjacencyOffsets[selected + 1] - graph.adjacencyOffsets[selected] })}</span>
         <button className="icon-button" aria-label={t('Clear selection')} onClick={() => setSelected(null)}><X size={14} /></button></div>}
-      {busy && !error && <div className="embed-notice" role="status"><LoaderCircle size={18} className="spin" />{t('Building network')}</div>}
+      {busy && !error && <div className="embed-notice" role="status"><LoaderCircle size={18} className="spin" />{t(layoutBusy ? 'Calculating layout' : 'Building network')}</div>}
       {(error || renderError) && <div className="embed-notice error-text" role="alert">{text(error || renderError)}</div>}
       {!busy && !error && summary && !summary.canRender && <div className="embed-notice">{t('Capacity calculated; rendering limit exceeded')}</div>}
     </div>

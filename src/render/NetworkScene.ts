@@ -5,6 +5,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { nearestNode } from './picking';
+import { resizeCamera } from './resizeCamera';
 import { connectionColor, groupColor, nodeColor, SHARED_COLOR, usesGroupColors, usesPodColors } from './colors';
 import { DEPTH_LINK_THRESHOLD } from '../model/types';
 import type { BenchmarkResult, Filter, FrameStats, LayoutMode, LayoutResult, PathSet, TopologyBuffers, ViewConfig } from '../model/types';
@@ -18,27 +19,30 @@ const pointFragment = [
   'void main(){ if(length(gl_PointCoord-vec2(0.5))>0.5) discard; gl_FragColor=vec4(vColor,1.0);',
   '#include <colorspace_fragment>', '}',
 ].join('\n');
-// Camera-facing, outlined circles keep devices legible at every viewing angle.
+// Camera-facing circles in 3D, compact square devices in the 2D schematic.
 // One instanced quad per switch preserves the large-network draw-call budget.
 const switchVertex = `
 uniform vec2 viewport;
+uniform bool schematic;
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vSize;
 void main() {
   vec4 center = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   float distanceScale = isOrthographic ? 1.0 : max(0.1, -center.z);
-  vSize = clamp(length(instanceMatrix[0].xyz) * projectionMatrix[1][1] * viewport.y * 0.5 / distanceScale, 2.5, 18.0);
+  vSize = clamp(length(instanceMatrix[0].xyz) * projectionMatrix[1][1] * viewport.y * 0.5 / distanceScale, schematic ? 0.7 : 2.5, 18.0);
   gl_Position = projectionMatrix * center;
   gl_Position.xy += position.xy * vSize * 2.0 / viewport * gl_Position.w;
   vUv = uv; vColor = instanceColor;
 }`;
 const switchFragment = `
+uniform bool schematic;
 varying vec2 vUv;
 varying vec3 vColor;
 varying float vSize;
 void main() {
-  float radius = length(vUv * 2.0 - 1.0);
+  vec2 point = abs(vUv * 2.0 - 1.0);
+  float radius = schematic ? max(point.x, point.y) : length(point);
   float aa = fwidth(radius);
   if (radius > 1.0) discard;
   float border = 1.0 - smoothstep(max(0.25, 1.0 - 2.2 / vSize) - aa, max(0.25, 1.0 - 2.2 / vSize), radius);
@@ -136,6 +140,9 @@ export class NetworkScene {
     controls.autoRotateSpeed = 1.2;
     controls.minDistance = 2; controls.maxDistance = 20000;
     controls.maxPolarAngle = Math.PI * 0.93;
+    // Wheel zoom updates the controls inside the event handler, before the
+    // animation loop. Its next update() may report no movement; still redraw.
+    controls.addEventListener('change', () => { this.dirty = true; });
     return controls;
   }
   private handleContextLost = (event: Event) => {
@@ -144,19 +151,26 @@ export class NetworkScene {
     this.onError(msg("GPU context lost. Reload to restore the canvas; your applied configuration will be restored."));
   };
   private resize = () => {
+    const width = this.host.clientWidth, height = this.host.clientHeight;
+    // A hidden tab has no viewport. Retain the last real dimensions and camera
+    // so returning to the topology cannot reset or collapse the current view.
+    if (width <= 1 || height <= 1) return;
     const oldWidth = this.width, oldHeight = this.height;
-    this.width = Math.max(1, this.host.clientWidth);
-    this.height = Math.max(1, this.host.clientHeight);
+    if (width === oldWidth && height === oldHeight) return;
+    this.width = width; this.height = height;
     this.renderer.setSize(this.width, this.height, false);
     if (this.switches) (this.switches.material as THREE.ShaderMaterial).uniforms.viewport.value.set(this.width, this.height);
-    if (this.camera instanceof THREE.PerspectiveCamera) this.camera.aspect = this.width / this.height;
-    else this.updateOrthographicBounds();
-    this.camera.updateProjectionMatrix(); this.dirty = true;
-    if (this.graph && this.width > 1 && this.height > 1 &&
-        (oldWidth !== this.width || oldHeight !== this.height)) {
-      this.cancelBenchmark(msg("Canvas size changed"));
-      this.reset();
+    for (const object of this.highlights) {
+      if (object instanceof LineSegments2) object.material.resolution.set(width, height);
     }
+    this.cancelBenchmark(msg("Canvas size changed"));
+    if (this.layout && oldWidth > 1 && oldHeight > 1)
+      resizeCamera(this.camera, oldWidth, oldHeight, width, height);
+    else if (this.layout) this.reset(this.fitAll2D); // First visible viewport only.
+    else if (this.camera instanceof THREE.PerspectiveCamera) {
+      this.camera.aspect = width / height; this.camera.updateProjectionMatrix();
+    }
+    this.dirty = true;
   };
   private updateOrthographicBounds() {
     if (!(this.camera instanceof THREE.OrthographicCamera)) return;
@@ -176,7 +190,8 @@ export class NetworkScene {
     }
     // Long rows may extend beyond the viewport. Preserve readable tier spacing
     // by default; fitting the entire wide fabric is an explicit user action.
-    const halfWidth = this.mode === 'flat' && !this.fitAll2D ? 0 : extent.x / (2 * aspect);
+    const halfWidth = this.mode === 'flat' && !this.fitAll2D
+      ? Math.min(extent.x / (2 * aspect), extent.y * 1.1) : extent.x / (2 * aspect);
     const size = Math.max(1, extent.y / 2, halfWidth) * 1.12 + (this.layout?.span ?? 180) * 0.025;
     this.camera.left = -size * aspect; this.camera.right = size * aspect;
     this.camera.top = size; this.camera.bottom = -size;
@@ -217,7 +232,7 @@ export class NetworkScene {
     this.scene.add(this.endpoints);
     const switchGeometry = this.remember(new THREE.PlaneGeometry(1, 1));
     const switchMaterial = this.remember(new THREE.ShaderMaterial({ vertexShader: switchVertex, fragmentShader: switchFragment,
-      uniforms: { viewport: { value: new THREE.Vector2(this.width, this.height) } },
+      uniforms: { viewport: { value: new THREE.Vector2(this.width, this.height) }, schematic: { value: view.layout === 'flat' } },
       transparent: true, depthWrite: false, depthTest: false }));
     this.switches = new THREE.InstancedMesh(switchGeometry, switchMaterial, graph.nodeCount - graph.endpointCount);
     this.remember(this.switches);
@@ -247,7 +262,12 @@ export class NetworkScene {
     if (!this.graph || !this.positionAttribute) return;
     this.cancelBenchmark(msg("Layout changed"));
     this.layout = layout; this.mode = mode;
+    if (this.switches) (this.switches.material as THREE.ShaderMaterial).uniforms.schematic.value = mode === 'flat';
     this.positionAttribute.array = layout.positions; this.positionAttribute.needsUpdate = true;
+    if (this.links?.geometry.hasAttribute('position')) {
+      const position = this.links.geometry.getAttribute('position') as THREE.BufferAttribute;
+      position.array = layout.positions; position.needsUpdate = true;
+    }
     this.updateLayoutBounds();
     this.clearGuides();
     for (const label of layout.labels) {
@@ -283,7 +303,7 @@ export class NetworkScene {
       sheetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(tints, 3));
       this.sheets = new THREE.Mesh(sheetGeometry, new THREE.MeshBasicMaterial({ vertexColors: true,
         side: THREE.DoubleSide, forceSinglePass: true, transparent: true,
-        opacity: Math.min(0.018, 0.18 / (layout.guides.length / 24)), depthWrite: false, depthTest: false }));
+        opacity: mode === 'flat' ? 0.035 : Math.min(0.018, 0.18 / (layout.guides.length / 24)), depthWrite: false, depthTest: false }));
       this.sheets.renderOrder = -1; this.sheets.frustumCulled = false; this.sheets.visible = this.guides.visible;
       this.scene.add(this.sheets);
     }
@@ -321,8 +341,10 @@ export class NetworkScene {
     const point = new THREE.Vector3();
     for (let n = this.view.showEndpoints ? 0 : this.graph.endpointCount; n < this.graph.nodeCount; n++)
       this.layoutBounds.expandByPoint(point.fromArray(this.layout.positions, n * 3));
-    if (this.mode === 'planes') for (const label of this.layout.labels)
+    if (this.mode === 'planes' || this.mode === 'flat') for (const label of this.layout.labels)
       this.layoutBounds.expandByPoint(point.fromArray(label.position));
+    if (this.mode === 'flat') for (let i = 0; i < this.layout.guides.length; i += 3)
+      this.layoutBounds.expandByPoint(point.fromArray(this.layout.guides, i));
   }
   setView(view: ViewConfig) {
     const old = this.view; this.view = view;
@@ -339,7 +361,10 @@ export class NetworkScene {
     this.resources = this.resources.filter(resource => resource !== oldGeometry);
     // Indexed lines transform shared node coordinates without duplicating vertices per link.
     const geometry = this.remember(new THREE.BufferGeometry());
-    geometry.setAttribute('position', this.positionAttribute);
+    // Each geometry owns its GPU attribute. Disposing a geometry deletes its
+    // buffers; sharing attributes leaves other geometries' VAOs bound to stale
+    // buffers when highlights or filters are rebuilt. CPU coordinates can share.
+    geometry.setAttribute('position', new THREE.BufferAttribute(this.positionAttribute.array, 3));
     geometry.setAttribute('linkColor', this.linkColors);
     geometry.setIndex(new THREE.BufferAttribute(this.visibleEdges, 1));
     geometry.setDrawRange(0, this.visibleEdges.length);
@@ -402,7 +427,7 @@ export class NetworkScene {
   private updateSwitches() {
     if (!this.switches || !this.layout || !this.colors) return;
     const matrix = new THREE.Matrix4(), color = new THREE.Color();
-    const scale = Math.max(1.7, this.layout.span / 90) * (this.graph && this.graph.nodeCount - this.graph.endpointCount > 2000 ? 0.7 : 1);
+    const scale = this.mode === 'flat' ? 2 : Math.max(1.7, this.layout.span / 90) * (this.graph && this.graph.nodeCount - this.graph.endpointCount > 2000 ? 0.7 : 1);
     this.switches.count = this.visibleSwitches.length;
     this.visibleSwitches.forEach((n, i) => {
       const size = scale * (n === this.selected ? 1.18 : 1);
@@ -473,7 +498,7 @@ export class NetworkScene {
     const lines = new LineSegments2(geometry, material); lines.renderOrder = 4; lines.frustumCulled = false;
     this.scene.add(lines); this.highlights.push(lines); this.highlightResources.push(geometry, material);
     const pointGeometry = new THREE.BufferGeometry();
-    pointGeometry.setAttribute('position', this.positionAttribute!);
+    pointGeometry.setAttribute('position', new THREE.BufferAttribute(this.positionAttribute!.array, 3));
     const colors = new Float32Array(this.graph.nodeCount * 3);
     for (const n of nodes) colors.set(this.colors!.subarray(n * 3, n * 3 + 3), n * 3);
     pointGeometry.setAttribute('nodeColor', new THREE.BufferAttribute(colors, 3));

@@ -26,7 +26,8 @@ test('copies an applied, read-only iframe and renders it on another website', as
   await expect(preview.getByTestId('endpoint-count')).toHaveText('128');
   await expect(preview.getByTestId('switch-count')).toHaveText('80');
   await expect(preview.getByTestId('link-count')).toHaveText('384');
-  await expect(preview.locator('input, select, textarea')).toHaveCount(0);
+  await expect(preview.locator('input, textarea')).toHaveCount(0);
+  await expect(preview.getByLabel('Topology layout', { exact: true })).toHaveValue('planes');
   await expect(preview.getByRole('table')).toContainText('8 × 100 Gbps');
   await preview.getByTestId('network-canvas').click({ position: { x: 240, y: 120 } });
   await expect(preview.getByRole('button', { name: 'Clear selection' })).toBeVisible();
@@ -65,7 +66,13 @@ test('copies an applied, read-only iframe and renders it on another website', as
     await blog.goto(`http://localhost:${(server.address() as AddressInfo).port}/clos-post`);
     const embedded = blog.frameLocator('iframe');
     await ready(embedded, 80, 256);
-    await expect(embedded.locator('input, select, textarea')).toHaveCount(0);
+    await expect(embedded.locator('input, textarea')).toHaveCount(0);
+    await embedded.getByLabel('Topology layout', { exact: true }).selectOption('flat');
+    await expect(embedded.locator('.topology-label').filter({ hasText: /^Spine · P/ })).toHaveCount(4);
+    await ready(embedded, 80, 256);
+    // Wait for the iframe's new GPU frame to reach the browser compositor.
+    await embedded.getByTestId('network-canvas').evaluate(() =>
+      new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(embedded.getByTestId('bandwidth')).toHaveText('12.8 Tbps');
     await blog.screenshot({ path: info.outputPath('blog-embed.png') });
     const home = embedded.getByRole('link', { name: 'ClosLab home' });
@@ -82,6 +89,43 @@ test('copies an applied, read-only iframe and renders it on another website', as
     await blog.close();
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+test('embed viewers can switch all layouts without changing hardware, node selection or the saved project', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(example);
+  await ready(page, 80, 256);
+  const stored = await savedProject(page);
+  await page.goto(example + '&embed=1&lang=en');
+  await ready(page, 80, 256);
+  const originalUrl = page.url();
+  const parameters = await page.getByRole('table').innerText();
+  const selector = page.getByLabel('Topology layout', { exact: true });
+  await expect(selector.locator('option')).toHaveText(['3D layered', 'Expanded planes', '2D schematic', 'Radial']);
+  await page.getByTestId('network-canvas').click({ position: { x: 240, y: 120 } });
+  await expect(page.locator('.embed-selection')).toBeVisible();
+  const selection = (await page.locator('.embed-selection').textContent())!;
+  for (const mode of ['flat', 'radial', 'layered', 'planes']) {
+    await selector.selectOption(mode);
+    await expect(selector).toBeEnabled();
+    await ready(page, 80, 256);
+    await expect(selector).toHaveValue(mode);
+    if (mode === 'flat') await expect(page.locator('.topology-label').filter({ hasText: /^Spine · P/ })).toHaveCount(4);
+    else if (mode === 'radial') await expect(page.locator('.topology-label')).toHaveCount(0);
+    else await expect(page.locator('.topology-label').filter({ hasText: /^Plane / })).toHaveCount(4);
+    await expect(page.locator('.embed-selection')).toHaveText(selection);
+    await expect(page.getByTestId('endpoint-count')).toHaveText('128');
+    await expect(page.getByTestId('link-count')).toHaveText('384');
+    expect(await page.getByRole('table').innerText()).toBe(parameters);
+    await expect(page.locator('input, textarea')).toHaveCount(0);
+    expect(page.url()).toBe(originalUrl);
+    expect(await savedProject(page)).toEqual(stored);
+  }
+  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Reset view', exact: true }).click();
+  await page.screenshot({ path: info.outputPath('embed-layout-switch.png') });
+  expect(errors).toEqual([]);
 });
 
 test('iframe dimensions control copied markup and the live viewport without reloading it', async ({ page, context }, info) => {
@@ -179,6 +223,11 @@ test('sharing and the embedded preview fit narrow screens in Chinese', async ({ 
   const preview = page.frameLocator('.share-preview iframe');
   await ready(preview, 80, 256);
   await expect(preview.getByRole('button', { name: '重置视图' })).toBeVisible();
+  await preview.getByLabel('拓扑布局', { exact: true }).selectOption('flat');
+  await expect(preview.getByLabel('拓扑布局', { exact: true })).toBeEnabled();
+  await ready(preview, 80, 256);
+  await expect(preview.locator('.topology-label').filter({ hasText: /^Spine · P/ })).toHaveCount(4);
+  await expect(preview.getByLabel('拓扑布局', { exact: true })).toBeInViewport();
   expect(await page.getByRole('dialog').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   expect(await preview.getByTestId('embed-preview').evaluate(() =>
     document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight)).toBe(true);

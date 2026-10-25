@@ -1,12 +1,13 @@
 import { useI18n } from './i18n/I18nProvider';
-import { errorText, LocalizedError, msg, type LocalizedText, type MessageKey } from './i18n/core';
+import { errorText, LocalizedError, msg, type LocalizedText } from './i18n/core';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Box, ChevronDown, CircleHelp, Expand,
+import { ArrowDownToLine, ArrowUpFromLine, CircleHelp, Expand,
   Gauge, GitBranch, Languages, Layers3, Link2, LoaderCircle, Maximize, Minimize, MousePointer2, Network, Pause, Play, RotateCcw, Scan, Search, SlidersHorizontal, X } from 'lucide-react';
 import ConfigPanel from './components/ConfigPanel';
 import Inspector, { type PathEndpoint, type PathInputs } from './components/Inspector';
 import ShareDialog from './components/ShareDialog';
 import EmbedPreview from './components/EmbedPreview';
+import LayoutSelect from './components/LayoutSelect';
 import { NetworkCanvas, type CanvasHandle } from './components/NetworkCanvas';
 import { DEFAULT_SPEC } from './model/defaults';
 import { calculate, findNode, nodeLabel, SpecError } from './model/engine';
@@ -14,7 +15,7 @@ import { formatBandwidth, formatCount } from './model/format';
 import { parseProject, serializeProject } from './model/project';
 import { projectFromQuery, projectToQuery } from './model/url';
 import { DEFAULT_VIEW, DEPTH_LINK_THRESHOLD, EMPTY_FILTER, type BenchmarkResult, type CapacitySummary, type Diagnostic, type Filter,
-  type FrameStats, type LayoutMode, type LayoutResult, type PathSet, type SavedProject, type TopologyBuffers, type TopologySpec, type ViewConfig } from './model/types';
+  type FrameStats, type LayoutResult, type PathSet, type SavedProject, type TopologyBuffers, type TopologySpec, type ViewConfig } from './model/types';
 import { TopologyClient } from './workers/client';
 import { groupColor, SHARED_COLOR, TIER_COLORS, usesGroupColors, usesPodColors } from './render/colors';
 
@@ -23,7 +24,6 @@ interface Result {
   layout: LayoutResult | null; elapsedMs: number;
 }
 const STORAGE_KEY = 'closlab.project.v1';
-const LAYOUT_LABELS: Record<LayoutMode, MessageKey> = { layered: "3D layered", planes: "Expanded planes", flat: "2D layered", radial: "Radial" };
 function initialProject(): SavedProject & { urlError?: LocalizedText } {
   const defaults: SavedProject = { format: 'closlab', version: 1, spec: structuredClone(DEFAULT_SPEC), view: { ...DEFAULT_VIEW } };
   try {
@@ -193,7 +193,8 @@ export default function App() {
   const naturalGroups = result?.graph?.colorGroupKind === 'connection';
   const podColors = result?.graph ? usesPodColors(result.graph) : false;
   if (embedded) return <EmbedPreview spec={currentSpec} view={view} summary={summary ?? null} graph={result?.graph ?? null}
-    layout={layout} busy={busy || layoutBusy} error={urlError || message} />;
+    layout={layout} busy={busy || layoutBusy} layoutBusy={layoutBusy} error={urlError || message}
+    onLayoutChange={layout => updateView({ layout })} />;
   return <div className="app">
     <header className="topbar">
       <a href="./" className="brand" aria-label={t("ClosLab home")}><img src="/favicon.svg" alt="" /><strong>ClosLab</strong></a>
@@ -238,9 +239,7 @@ export default function App() {
             </div></div>
             <div className={'canvas-shell' + (focused ? ' is-focused' : '')} style={{ display: tab === 'topology' ? undefined : 'none' }}>
               <div className="canvas-toolbar">
-                <div className="layout-select"><Box size={14} /><select aria-label={t("Topology layout")} value={view.layout} onChange={e => updateView({ layout: e.target.value as LayoutMode })}>
-                  {Object.entries(LAYOUT_LABELS).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
-                </select><ChevronDown size={12} /></div>
+                <LayoutSelect value={view.layout} onChange={layout => updateView({ layout })} />
                 <div className="toolbar-spacer" />
                 <form className="node-search" onSubmit={e => { e.preventDefault(); search(); }}><Search size={13} />
                   <input aria-label={t("Search nodes")} value={query} onChange={e => setQuery(e.target.value)} placeholder={t("Find node ID")} />
@@ -347,7 +346,7 @@ export default function App() {
         <p>{t("Each independent point-to-point breakout connection counts as one link. The tool does not infer transceiver, fiber strand, or breakout cable assembly counts.")}</p>
         <h3>{t("Full-topology visualization")}</h3><p>{t("Expand up to 250,000 total nodes and 5,000,000 links. All endpoints and links are submitted to the GPU; distant overlap does not change counts. Only explicit filters reduce the displayed objects. The canvas footer shows current rendered counts, and exact capacity statistics remain available beyond the rendering limit.")}</p>
         <p>{t("Above 500,000 links, standard depth occlusion and color intensity replace transparency blending to reduce overdraw. Nodes render in a separate depth pass to remain visible and selectable. Every link is still submitted, without sampling.")}</p>
-        <p>{t("3D layered, expanded planes, 2D layered, and radial layouts share one graph. Node IDs include E-0 and T0-0. Click a node to inspect its neighbors or search by ID. Explore one shortest path or all equal-cost shortest paths (ECMP), with shared links highlighted once and an exact total path count.")}</p>
+        <p>{t("3D layered, expanded planes, 2D schematic, and radial layouts share one graph. Node IDs include E-0 and T0-0. Click a node to inspect its neighbors or search by ID. Explore one shortest path or all equal-cost shortest paths (ECMP), with shared links highlighted once and an exact total path count.")}</p>
         <h3>{t("References and scope")}</h3><p>{t("This version does not simulate congestion control, packet transmission, or paper performance results. F16 and MRC validate the general rules; neither uses a dedicated scenario generator.")}</p>
         <div className="reference-links"><a href="https://engineering.fb.com/2019/03/14/data-center-engineering/f16-minipack/" target="_blank" rel="noreferrer">Meta F16 / Minipack ↗</a>
           <a href="https://cdn.openai.com/pdf/resilient-ai-supercomputer-networking-using-mrc-and-srv6.pdf" target="_blank" rel="noreferrer">{t("MRC & SRv6 paper ↗")}</a></div>
